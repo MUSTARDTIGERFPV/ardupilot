@@ -167,6 +167,7 @@
 #if AC_OAPATHPLANNER_ENABLED && !AP_FENCE_ENABLED
   #error AP_OAPathPlanner relies on AP_FENCE_ENABLED which is disabled
 #endif
+#include <AP_Radar/AP_Radar.h>
 
 // Local modules
 #ifdef USER_PARAMS_ENABLED
@@ -545,6 +546,9 @@ private:
     AP_Avoidance_Copter avoidance_adsb{adsb};
 #endif
 
+#if AP_RADAR_ENABLED
+    AP_Radar radar;
+#endif
     // last valid RC input time
     uint32_t last_radio_update_ms;
 

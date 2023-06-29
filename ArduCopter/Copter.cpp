@@ -233,6 +233,9 @@ const AP_Scheduler::Task Copter::scheduler_tasks[] = {
 #if AP_WINCH_ENABLED
     SCHED_TASK_CLASS(AP_Winch,             &copter.g2.winch,            update,          50,  50, 150),
 #endif
+#if AP_RADAR_ENABLED
+    SCHED_TASK_CLASS(AP_Radar,             &copter.radar,               update,          100, 25, 152),
+#endif
 #ifdef USERHOOK_FASTLOOP
     SCHED_TASK(userhook_FastLoop,    100,     75, 153),
 #endif

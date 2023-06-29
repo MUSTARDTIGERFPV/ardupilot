@@ -1670,11 +1670,11 @@ void AP_OSD_Screen::draw_radar(uint8_t x, uint8_t y)
             angle = 0;
         }
         char arrow = SYMBOL(SYM_ARROW_START) + ((angle + interval / 2) / interval) % SYMBOL(SYM_ARROW_COUNT);
-        backend->write(x, y, false, "%c%c", id + 65, arrow);
+        backend->write(x, y, false, "%c%c", id + 64, arrow);
         draw_distance(x+2, y, distance);
         draw_vdistance(x+1, y+1, vertical_distance);
     } else {
-        backend->write(x, y, true, "%c", id + 65);
+        backend->write(x, y, true, "%c -", id + 65);
     }
     if (AP_HAL::millis() - last_peer_change > 2000) {
         id = ap_radar->get_next_healthy_peer(id);

@@ -51,6 +51,12 @@ void Copter::init_ardupilot()
     // setup telem slots with serial ports
     gcs().setup_uarts();
 
+#if AP_RADAR_ENABLED
+    if (radar.enabled()) {
+        radar.init(-1);
+    }
+#endif
+
 #if OSD_ENABLED == ENABLED
     osd.init();
 #endif

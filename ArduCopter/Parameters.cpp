@@ -636,6 +636,10 @@ const AP_Param::Info Copter::var_info[] = {
     GOBJECTN(ahrs.EKF3, NavEKF3, "EK3_", NavEKF3),
 #endif
 
+#if AP_RADAR_ENABLED
+    GOBJECT(radar, "RADAR", AP_Radar),
+#endif
+
 #if MODE_AUTO_ENABLED == ENABLED
     // @Group: MIS_
     // @Path: ../libraries/AP_Mission/AP_Mission.cpp
