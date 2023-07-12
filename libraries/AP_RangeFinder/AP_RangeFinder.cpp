@@ -44,7 +44,7 @@
 #include "AP_RangeFinder_HC_SR04.h"
 #include "AP_RangeFinder_Bebop.h"
 #include "AP_RangeFinder_BLPing.h"
-#include "AP_RangeFinder_UAVCAN.h"
+#include "AP_RangeFinder_DroneCAN.h"
 #include "AP_RangeFinder_Lanbao.h"
 #include "AP_RangeFinder_LeddarVu8.h"
 #include "AP_RangeFinder_SITL.h"
@@ -52,11 +52,13 @@
 #include "AP_RangeFinder_USD1_CAN.h"
 #include "AP_RangeFinder_Benewake_CAN.h"
 #include "AP_RangeFinder_Lua.h"
+#include "AP_RangeFinder_NoopLoop.h"
 
 #include <AP_BoardConfig/AP_BoardConfig.h>
 #include <AP_Logger/AP_Logger.h>
 #include <AP_SerialManager/AP_SerialManager.h>
 #include <AP_Vehicle/AP_Vehicle_Type.h>
+#include <AP_HAL/I2CDevice.h>
 
 extern const AP_HAL::HAL &hal;
 
@@ -185,11 +187,10 @@ RangeFinder::RangeFinder()
  */
 void RangeFinder::init(enum Rotation orientation_default)
 {
-    if (init_done) {
-        // init called a 2nd time?
+    if (num_instances != 0) {
+        // don't re-init if we've found some sensors already
         return;
     }
-    init_done = true;
 
     // set orientation defaults
     for (uint8_t i=0; i<RANGEFINDER_MAX_INSTANCES; i++) {
@@ -298,9 +299,11 @@ void RangeFinder::detect_instance(uint8_t instance, uint8_t& serial_instance)
 #if AP_RANGEFINDER_LWI2C_ENABLED
         if (params[instance].address) {
             // the LW20 needs a long time to boot up, so we delay 1.5s here
+#ifndef HAL_BUILD_AP_PERIPH
             if (!hal.util->was_watchdog_armed()) {
                 hal.scheduler->delay(1500);
             }
+#endif
 #ifdef HAL_RANGEFINDER_LIGHTWARE_I2C_BUS
             _add_backend(AP_RangeFinder_LightWareI2C::detect(state[instance], params[instance],
                                                              hal.i2c_mgr->get_device(HAL_RANGEFINDER_LIGHTWARE_I2C_BUS, params[instance].address)),
@@ -487,7 +490,7 @@ void RangeFinder::detect_instance(uint8_t instance, uint8_t& serial_instance)
         break;
 
     case Type::UAVCAN:
-#if AP_RANGEFINDER_UAVCAN_ENABLED
+#if AP_RANGEFINDER_DRONECAN_ENABLED
         /*
           the UAVCAN driver gets created when we first receive a
           measurement. We take the instance slot now, even if we don't
@@ -531,6 +534,11 @@ void RangeFinder::detect_instance(uint8_t instance, uint8_t& serial_instance)
     case Type::Lua_Scripting:
 #if AP_SCRIPTING_ENABLED
         _add_backend(new AP_RangeFinder_Lua(state[instance], params[instance]), instance);
+#endif
+        break;
+    case Type::NoopLoop_P:
+#if AP_RANGEFINDER_NOOPLOOP_ENABLED
+        serial_create_fn = AP_RangeFinder_NoopLoop::create;
 #endif
         break;
 

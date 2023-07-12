@@ -16,9 +16,14 @@ int8_t RC_Channels_Plane::flight_mode_channel_number() const
     return plane.g.flight_mode_channel.get();
 }
 
+bool RC_Channels_Plane::in_rc_failsafe() const
+{
+    return (plane.rc_failsafe_active() || plane.failsafe.rc_failsafe);
+}
+
 bool RC_Channels_Plane::has_valid_input() const
 {
-    if (plane.rc_failsafe_active() || plane.failsafe.rc_failsafe) {
+    if (in_rc_failsafe()) {
         return false;
     }
     if (plane.failsafe.throttle_counter != 0) {
@@ -45,8 +50,7 @@ void RC_Channel_Plane::do_aux_function_change_mode(const Mode::Number number,
         // return to flight mode switch's flight mode if we are currently
         // in this mode
         if (plane.control_mode->mode_number() == number) {
-// TODO:           rc().reset_mode_switch();
-            plane.reset_control_switch();
+            rc().reset_mode_switch();
         }
     }
 }
@@ -154,6 +158,7 @@ void RC_Channel_Plane::init_aux_function(const RC_Channel::aux_func_t ch_option,
     case AUX_FUNC::RTL:
     case AUX_FUNC::TAKEOFF:
     case AUX_FUNC::FBWA:
+    case AUX_FUNC::AIRBRAKE:
 #if HAL_QUADPLANE_ENABLED
     case AUX_FUNC::QRTL:
     case AUX_FUNC::QSTABILIZE:
@@ -167,6 +172,7 @@ void RC_Channel_Plane::init_aux_function(const RC_Channel::aux_func_t ch_option,
 #if HAL_QUADPLANE_ENABLED
     case AUX_FUNC::ARMDISARM_AIRMODE:
 #endif
+    case AUX_FUNC::PLANE_AUTO_LANDING_ABORT:
     case AUX_FUNC::TRIM_TO_CURRENT_SERVO_RC:
     case AUX_FUNC::EMERGENCY_LANDING_EN:
     case AUX_FUNC::FW_AUTOTUNE:
@@ -353,7 +359,7 @@ bool RC_Channel_Plane::do_aux_function(const aux_func_t ch_option, const AuxSwit
         break;
 
     case AUX_FUNC::MODE_SWITCH_RESET:
-        plane.reset_control_switch();
+        rc().reset_mode_switch();
         break;
 
     case AUX_FUNC::CRUISE:
@@ -386,6 +392,17 @@ bool RC_Channel_Plane::do_aux_function(const aux_func_t ch_option, const AuxSwit
         break;
     }
 #endif
+
+    case AUX_FUNC::PLANE_AUTO_LANDING_ABORT:
+        switch(ch_flag) {
+        case AuxSwitchPos::HIGH:
+            IGNORE_RETURN(plane.trigger_land_abort(0));
+            break;
+        case AuxSwitchPos::MIDDLE:
+        case AuxSwitchPos::LOW:
+            break;
+        }
+        break;
 
     case AUX_FUNC::TRIM_TO_CURRENT_SERVO_RC:
         if (ch_flag == AuxSwitchPos::HIGH) {

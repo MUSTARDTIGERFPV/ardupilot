@@ -23,6 +23,8 @@
 
 #if AP_CAMERA_ENABLED
 #include "AP_Camera.h"
+#include <AP_Common/Location.h>
+#include <AP_Logger/LogStructure.h>
 
 class AP_Camera_Backend
 {
@@ -33,6 +35,11 @@ public:
 
     /* Do not allow copies */
     CLASS_NO_COPY(AP_Camera_Backend);
+
+    enum CAMOPTIONS {
+        NONE = 0,
+        REC_ARM_DISARM = 1, // Recording start/stop on Arm/Disarm
+    };
 
     // init - performs any required initialisation
     virtual void init() {};
@@ -56,18 +63,19 @@ public:
     // set start_recording = true to start record, false to stop recording
     virtual bool record_video(bool start_recording) { return false; }
 
-    // set camera zoom step.  returns true on success
-    // zoom out = -1, hold = 0, zoom in = 1
-    virtual bool set_zoom_step(int8_t zoom_step) { return false; }
+    // set zoom specified as a rate or percentage
+    virtual bool set_zoom(ZoomType zoom_type, float zoom_value) { return false; }
 
-    // set focus in, out or hold.  returns true on success
+    // set focus specified as rate, percentage or auto
     // focus in = -1, focus hold = 0, focus out = 1
-    virtual bool set_manual_focus_step(int8_t focus_step) { return false; }
+    virtual SetFocusResult set_focus(FocusType focus_type, float focus_value) { return SetFocusResult::UNSUPPORTED; }
 
-    // auto focus.  returns true on success
-    virtual bool set_auto_focus() { return false; }
+    // set tracking to none, point or rectangle (see TrackingType enum)
+    // if POINT only p1 is used, if RECTANGLE then p1 is top-left, p2 is bottom-right
+    // p1,p2 are in range 0 to 1.  0 is left or top, 1 is right or bottom
+    virtual bool set_tracking(TrackingType tracking_type, const Vector2f& p1, const Vector2f& p2) { return false; }
 
-    // handle incoming mavlink message
+    // handle MAVLink messages from the camera
     virtual void handle_message(mavlink_channel_t chan, const mavlink_message_t &msg) {}
 
     // configure camera
@@ -80,7 +88,19 @@ public:
     void set_trigger_distance(float distance_m) { _params.trigg_dist.set(distance_m); }
 
     // send camera feedback message to GCS
-    void send_camera_feedback(mavlink_channel_t chan) const;
+    void send_camera_feedback(mavlink_channel_t chan);
+
+    // send camera information message to GCS
+    virtual void send_camera_information(mavlink_channel_t chan) const;
+
+    // send camera settings message to GCS
+    virtual void send_camera_settings(mavlink_channel_t chan) const;
+
+#if AP_CAMERA_SCRIPTING_ENABLED
+    // accessor to allow scripting backend to retrieve state
+    // returns true on success and cam_state is filled in
+    virtual bool get_state(AP_Camera::camera_state_t& cam_state) { return false; }
+#endif
 
 protected:
 
@@ -123,6 +143,7 @@ protected:
     uint32_t last_photo_time_ms;    // system time that photo was last taken
     Location last_location;         // Location that last picture was taken at (used for trigg_dist calculation)
     uint16_t image_index;           // number of pictures taken since boot
+    bool last_is_armed;             // stores last arm/disarm state. true if it was armed lastly
 };
 
 #endif // AP_CAMERA_ENABLED

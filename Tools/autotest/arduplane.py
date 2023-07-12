@@ -20,6 +20,7 @@ from common import AutoTestTimeoutException
 from common import NotAchievedException
 from common import PreconditionFailedException
 from common import WaitModeTimeout
+from common import OldpymavlinkException
 from pymavlink.rotmat import Vector3
 from pysim import vehicleinfo
 
@@ -318,78 +319,83 @@ class AutoTestPlane(AutoTest):
     def set_attitude_target(self, tolerance=10):
         """Test setting of attitude target in guided mode."""
         self.change_mode("GUIDED")
-#        self.set_parameter("STALL_PREVENTION", 0)
 
-        state_roll_over = "roll-over"
-        state_stabilize_roll = "stabilize-roll"
+        steps = [{"name": "roll-over",         "roll": 60, "pitch": 0,  "yaw": 0, "throttle": 0, "type_mask": 0b10000001},
+                 {"name": "roll-back",         "roll": 0,  "pitch": 0,  "yaw": 0, "throttle": 0, "type_mask": 0b10000001},
+                 {"name": "pitch-up+throttle", "roll": 0,  "pitch": 20, "yaw": 0, "throttle": 1, "type_mask": 0b11000010},
+                 {"name": "pitch-back",        "roll": 0,  "pitch": 0,  "yaw": 0, "throttle": 0, "type_mask": 0b10000010}]
+
+        state_wait = "wait"
         state_hold = "hold"
-        state_roll_back = "roll-back"
-        state_done = "done"
-
-        tstart = self.get_sim_time()
-
         try:
-            state = state_roll_over
-            while state != state_done:
+            for step in steps:
+                step_start = self.get_sim_time_cached()
+                state = state_wait
+                state_start = self.get_sim_time_cached()
+                while True:
+                    m = self.mav.recv_match(type='ATTITUDE',
+                                            blocking=True,
+                                            timeout=0.1)
+                    now = self.get_sim_time_cached()
+                    if now - step_start > 30:
+                        raise AutoTestTimeoutException("Manuevers not completed")
+                    if m is None:
+                        continue
 
-                m = self.mav.recv_match(type='ATTITUDE',
-                                        blocking=True,
-                                        timeout=0.1)
-                now = self.get_sim_time_cached()
-                if now - tstart > 20:
-                    raise AutoTestTimeoutException("Manuevers not completed")
-                if m is None:
-                    continue
+                    angle_error = 0
+                    if (step["type_mask"] & 0b00000001) or (step["type_mask"] == 0b10000000):
+                        angle_error += abs(math.degrees(m.roll) - step["roll"])
 
-                r = math.degrees(m.roll)
-                if state == state_roll_over:
-                    target_roll_degrees = 60
-                    if abs(r - target_roll_degrees) < tolerance:
-                        state = state_stabilize_roll
-                        stabilize_start = now
-                elif state == state_stabilize_roll:
-                    # just give it a little time to sort it self out
-                    if now - stabilize_start > 2:
-                        state = state_hold
-                        hold_start = now
-                elif state == state_hold:
-                    target_roll_degrees = 60
-                    if now - hold_start > tolerance:
-                        state = state_roll_back
-                    if abs(r - target_roll_degrees) > tolerance:
-                        raise NotAchievedException("Failed to hold attitude")
-                elif state == state_roll_back:
-                    target_roll_degrees = 0
-                    if abs(r - target_roll_degrees) < tolerance:
-                        state = state_done
-                else:
-                    raise ValueError("Unknown state %s" % str(state))
+                    if (step["type_mask"] & 0b00000010) or (step["type_mask"] == 0b10000000):
+                        angle_error += abs(math.degrees(m.pitch) - step["pitch"])
 
-                m_nav = self.mav.messages['NAV_CONTROLLER_OUTPUT']
-                self.progress("%s Roll: %f desired=%f set=%f" %
-                              (state, r, m_nav.nav_roll, target_roll_degrees))
+                    if (step["type_mask"] & 0b00000100) or (step["type_mask"] == 0b10000000):
+                        # Strictly we should angle wrap, by plane doesn't support yaw correctly anyway so its not tested here
+                        angle_error += abs(math.degrees(m.yaw) - step["yaw"])
 
-                time_boot_millis = 0 # FIXME
-                target_system = 1 # FIXME
-                target_component = 1 # FIXME
-                type_mask = 0b10000001 ^ 0xFF # FIXME
-                # attitude in radians:
-                q = quaternion.Quaternion([math.radians(target_roll_degrees),
-                                           0,
-                                           0])
-                roll_rate_radians = 0.5
-                pitch_rate_radians = 0
-                yaw_rate_radians = 0
-                thrust = 1.0
-                self.mav.mav.set_attitude_target_send(time_boot_millis,
-                                                      target_system,
-                                                      target_component,
-                                                      type_mask,
-                                                      q,
-                                                      roll_rate_radians,
-                                                      pitch_rate_radians,
-                                                      yaw_rate_radians,
-                                                      thrust)
+                    # Note were not checking throttle, however the SITL plane needs full throttle to meet the
+                    # target pitch attitude, Pitch test will fail without throttle override
+
+                    if state == state_wait:
+                        # Reduced tolerance for initial trigger
+                        if angle_error < (tolerance * 0.25):
+                            state = state_hold
+                            state_start = now
+
+                        # Allow 10 seconds to reach attitude
+                        if (now - state_start) > 10:
+                            raise NotAchievedException(step["name"] + ": Failed to get to set attitude")
+
+                    elif state == state_hold:
+                        # Give 2 seconds to stabilize
+                        if (now - state_start) > 2 and not (angle_error < tolerance):
+                            raise NotAchievedException(step["name"] + ": Failed to hold set attitude")
+
+                        # Hold for 10 seconds
+                        if (now - state_start) > 12:
+                            # move onto next step
+                            self.progress("%s Done" % (step["name"]))
+                            break
+
+                    self.progress("%s %s error: %f" % (step["name"], state, angle_error))
+
+                    time_boot_millis = 0 # FIXME
+                    target_system = 1 # FIXME
+                    target_component = 1 # FIXME
+                    type_mask = step["type_mask"] ^ 0xFF # FIXME
+                    # attitude in radians:
+                    q = quaternion.Quaternion([math.radians(step["roll"]),
+                                               math.radians(step["pitch"]),
+                                               math.radians(step["yaw"])])
+                    self.mav.mav.set_attitude_target_send(time_boot_millis,
+                                                          target_system,
+                                                          target_component,
+                                                          type_mask,
+                                                          q,
+                                                          0, # roll rate, not used in AP
+                                                          0, # pitch rate, not used in AP
+                                                          0, # yaw rate, not used in AP
+                                                          step["throttle"])
         except Exception as e:
             self.change_mode('FBWA')
             self.set_rc(3, 1700)
@@ -574,6 +580,95 @@ class AutoTestPlane(AutoTest):
 
         self.fly_home_land_and_disarm()
 
+    def ExternalPositionEstimate(self):
+        '''Test mavlink EXTERNAL_POSITION_ESTIMATE command'''
+        if not hasattr(mavutil.mavlink, 'MAV_CMD_EXTERNAL_POSITION_ESTIMATE'):
+            raise OldpymavlinkException("pymavlink too old; upgrade pymavlink to get MAV_CMD_EXTERNAL_POSITION_ESTIMATE")  # noqa
+        self.change_mode("TAKEOFF")
+        self.wait_ready_to_arm()
+        self.arm_vehicle()
+        self.wait_altitude(48, 52, relative=True)
+
+        loc = self.mav.location()
+        self.location_offset_ne(loc, 2000, 2000)
+
+        # setting external position fail while we have GPS lock
+        self.progress("set new position with GPS")
+        self.run_cmd_int(
+            mavutil.mavlink.MAV_CMD_EXTERNAL_POSITION_ESTIMATE,
+            self.get_sim_time()-1, # transmit time
+            0.5, # processing delay
+            50, # accuracy
+            0,
+            int(loc.lat * 1e7),
+            int(loc.lng * 1e7),
+            float("NaN"),    # alt
+            frame=mavutil.mavlink.MAV_FRAME_GLOBAL,
+            want_result=mavutil.mavlink.MAV_RESULT_FAILED,
+        )
+
+        self.progress("disable the GPS")
+        self.run_auxfunc(
+            65,
+            2,
+            want_result=mavutil.mavlink.MAV_RESULT_ACCEPTED
+        )
+
+        # fly for a bit to get into non-aiding state
+        self.progress("waiting 20 seconds")
+        tstart = self.get_sim_time()
+        while self.get_sim_time() < tstart + 20:
+            self.wait_heartbeat()
+
+        self.progress("getting base position")
+        gpi = self.mav.recv_match(
+            type='GLOBAL_POSITION_INT',
+            blocking=True,
+            timeout=5
+        )
+        loc = mavutil.location(gpi.lat*1e-7, gpi.lon*1e-7, 0, 0)
+
+        self.progress("set new position with no GPS")
+        self.run_cmd_int(
+            mavutil.mavlink.MAV_CMD_EXTERNAL_POSITION_ESTIMATE,
+            self.get_sim_time()-1, # transmit time
+            0.5, # processing delay
+            50, # accuracy
+            0,
+            gpi.lat+1,
+            gpi.lon+1,
+            float("NaN"),    # alt
+            frame=mavutil.mavlink.MAV_FRAME_GLOBAL,
+            want_result=mavutil.mavlink.MAV_RESULT_ACCEPTED
+        )
+
+        self.progress("waiting 3 seconds")
+        tstart = self.get_sim_time()
+        while self.get_sim_time() < tstart + 3:
+            self.wait_heartbeat()
+
+        gpi2 = self.mav.recv_match(
+            type='GLOBAL_POSITION_INT',
+            blocking=True,
+            timeout=5
+        )
+        loc2 = mavutil.location(gpi2.lat*1e-7, gpi2.lon*1e-7, 0, 0)
+        dist = self.get_distance(loc, loc2)
+
+        self.progress("dist is %.1f" % dist)
+        if dist > 200:
+            raise NotAchievedException("Position error dist=%.1f" % dist)
+
+        self.progress("re-enable the GPS")
+        self.run_auxfunc(
+            65,
+            0,
+            want_result=mavutil.mavlink.MAV_RESULT_ACCEPTED
+        )
+
+        self.progress("flying home")
+        self.fly_home_land_and_disarm()
+
     def DeepStall(self):
         '''Test DeepStall Landing'''
         # self.fly_deepstall_absolute()
@@ -636,7 +731,7 @@ class AutoTestPlane(AutoTest):
         # assume elevator is on channel 2:
         self.wait_servo_channel_value(2, deepstall_elevator_pwm, timeout=240)
 
-        self.wait_text("Deepstall: Entry: ", check_context=True)
+        self.wait_text("Deepstall: Entry: ", check_context=True, timeout=60)
 
         self.disarm_wait(timeout=120)
         self.set_current_waypoint(0, check_afterwards=False)
@@ -1296,6 +1391,31 @@ class AutoTestPlane(AutoTest):
             on_radius_start_heading = None
             circle_time_start = 0
 
+    def MODE_SWITCH_RESET(self):
+        '''test the MODE_SWITCH_RESET auxiliary function'''
+        self.set_parameters({
+            "RC9_OPTION": 96,
+        })
+
+        self.progress("Using RC to change modes")
+        self.set_rc(8, 1500)
+        self.wait_mode('FBWA')
+
+        self.progress("Killing RC to engage RC failsafe")
+        self.set_parameter('SIM_RC_FAIL', 1)
+        self.wait_mode('RTL')
+
+        self.progress("Reinstating RC")
+        self.set_parameter('SIM_RC_FAIL', 0)
+
+        self.progress("Ensuring we don't automatically revert mode")
+        self.delay_sim_time(2)
+        self.assert_mode_is('RTL')
+
+        self.progress("Ensuring MODE_SWITCH_RESET switch resets to pre-failsafe mode")
+        self.set_rc(9, 2000)
+        self.wait_mode('FBWA')
+
     def FenceStatic(self):
         '''Test Basic Fence Functionality'''
         ex = None
@@ -1844,6 +1964,7 @@ class AutoTestPlane(AutoTest):
         self.fly_home_land_and_disarm()
 
     def deadreckoning_main(self, disable_airspeed_sensor=False):
+        self.reboot_sitl()
         self.wait_ready_to_arm()
         self.gpi = None
         self.simstate = None
@@ -4156,6 +4277,54 @@ class AutoTestPlane(AutoTest):
             else:
                 raise NotAchievedException("Missing trick %s" % t)
 
+    def SDCardWPTest(self):
+        '''test BRD_SD_MISSION support'''
+        spiral_script = "mission_spiral.lua"
+
+        self.context_push()
+        self.install_example_script(spiral_script)
+        self.context_collect('STATUSTEXT')
+        self.set_parameters({
+            "BRD_SD_MISSION" : 64,
+            "SCR_ENABLE" : 1,
+            "SCR_VM_I_COUNT" : 1000000
+            })
+
+        self.wait_ready_to_arm()
+        self.reboot_sitl()
+
+        self.wait_text("Loaded spiral mission creator", check_context=True)
+        self.set_parameters({
+            "SCR_USER2": 19, # radius
+            "SCR_USER3": -35.36322, # lat
+            "SCR_USER4": 149.16525, # lon
+            "SCR_USER5": 684.13, # alt
+        })
+
+        count = (65536 // 15) - 1
+
+        self.progress("Creating spiral mission of size %s" % count)
+        self.set_parameter("SCR_USER1", count)
+
+        self.wait_text("Created spiral of size %u" % count, check_context=True)
+
+        self.progress("Checking spiral before reboot")
+        self.set_parameter("SCR_USER6", count)
+        self.wait_text("Compared spiral of size %u OK" % count, check_context=True)
+        self.set_parameter("SCR_USER6", 0)
+
+        self.wait_ready_to_arm()
+        self.reboot_sitl()
+        self.progress("Checking spiral after reboot")
+        self.set_parameter("SCR_USER6", count)
+        self.wait_text("Compared spiral of size %u OK" % count, check_context=True)
+
+        self.remove_installed_script(spiral_script)
+
+        self.context_pop()
+        self.wait_ready_to_arm()
+        self.reboot_sitl()
+
     def MANUAL_CONTROL(self):
         '''test MANUAL_CONTROL mavlink message'''
         self.set_parameter("SYSID_MYGCS", self.mav.source_system)
@@ -4418,7 +4587,7 @@ class AutoTestPlane(AutoTest):
         self.start_subtest('0 airspeed sensors')
         self.set_parameter('ARSPD_TYPE', 0)
         self.reboot_sitl()
-        self.wait_statustext('No airspeed sensor present or enabled', check_context=True)
+        self.wait_statustext('No airspeed sensor', check_context=True)
         self.trigger_airspeed_cal()
         self.delay_sim_time(5)
         if self.statustext_in_collections('Airspeed 1 calibrated'):
@@ -4522,6 +4691,10 @@ class AutoTestPlane(AutoTest):
             self.AirspeedCal,
             self.MissionJumpTags,
             self.GCSFailsafe,
+            self.SDCardWPTest,
+            self.NoArmWithoutMissionItems,
+            self.MODE_SWITCH_RESET,
+            self.ExternalPositionEstimate,
         ])
         return ret
 

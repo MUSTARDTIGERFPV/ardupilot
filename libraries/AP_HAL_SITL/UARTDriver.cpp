@@ -54,7 +54,7 @@ bool UARTDriver::_console;
 
 /* UARTDriver method implementations */
 
-void UARTDriver::begin(uint32_t baud, uint16_t rxSpace, uint16_t txSpace)
+void UARTDriver::_begin(uint32_t baud, uint16_t rxSpace, uint16_t txSpace)
 {
     if (_portNumber >= ARRAY_SIZE(_sitlState->_uart_path)) {
         AP_HAL::panic("port number out of range; you may need to extend _sitlState->_uart_path");
@@ -195,11 +195,11 @@ void UARTDriver::begin(uint32_t baud, uint16_t rxSpace, uint16_t txSpace)
     _set_nonblocking(_fd);
 }
 
-void UARTDriver::end()
+void UARTDriver::_end()
 {
 }
 
-uint32_t UARTDriver::available(void)
+uint32_t UARTDriver::_available(void)
 {
     _check_connection();
 
@@ -219,27 +219,18 @@ uint32_t UARTDriver::txspace(void)
     return _writebuffer.space();
 }
 
-int16_t UARTDriver::read(void)
-{
-    uint8_t c;
-    if (read(&c, 1) == 0) {
-        return -1;
-    }
-    return c;
-}
-
-ssize_t UARTDriver::read(uint8_t *buffer, uint16_t count)
+ssize_t UARTDriver::_read(uint8_t *buffer, uint16_t count)
 {
     return _readbuffer.read(buffer, count);
 }
 
-bool UARTDriver::discard_input(void)
+bool UARTDriver::_discard_input(void)
 {
     _readbuffer.clear();
     return true;
 }
 
-void UARTDriver::flush(void)
+void UARTDriver::_flush(void)
 {
     // flush the write buffer - but don't fail and don't
     // infinitely-loop.  This is not a good definition of "flush", but
@@ -263,20 +254,7 @@ void UARTDriver::flush(void)
     }
 }
 
-// size_t UARTDriver::write(uint8_t c)
-// {
-//     if (txspace() <= 0) {
-//         return 0;
-//     }
-//     _writebuffer.write(&c, 1);
-//     return 1;
-// }
-
-size_t UARTDriver::write(uint8_t c)
-{
-    return write(&c, 1);
-}
-size_t UARTDriver::write(const uint8_t *buffer, size_t size)
+size_t UARTDriver::_write(const uint8_t *buffer, size_t size)
 {
     if (txspace() <= size) {
         size = txspace();
@@ -569,6 +547,14 @@ void UARTDriver::_udp_start_multicast(const char *address, uint16_t port)
     // close on exec, to allow reboot
     fcntl(_mc_fd, F_SETFD, FD_CLOEXEC);
 
+#if defined(__CYGWIN__) || defined(__CYGWIN64__) || defined(CYGWIN_BUILD)
+    /*
+      on cygwin you need to bind to INADDR_ANY then use the multicast
+      IP_ADD_MEMBERSHIP to get on the right address
+     */
+    sockaddr.sin_addr.s_addr = htonl(INADDR_ANY);
+#endif
+    
     ret = bind(_mc_fd, (struct sockaddr *)&sockaddr, sizeof(sockaddr));
     if (ret == -1) {
         fprintf(stderr, "multicast bind failed on port %u - %s\n",

@@ -2,14 +2,14 @@
 /// @brief	RC_Channel manager, with EEPROM-backed storage of constants.
 #pragma once
 
+#include "RC_Channel_config.h"
+
+#if AP_RC_CHANNEL_ENABLED
+
 #include <AP_Common/AP_Common.h>
 #include <AP_Param/AP_Param.h>
 #include <AP_Math/AP_Math.h>
 #include <AP_Common/Bitmask.h>
-
-#ifndef AP_RC_CHANNEL_AUX_FUNCTION_STRINGS_ENABLED
-#define AP_RC_CHANNEL_AUX_FUNCTION_STRINGS_ENABLED 1
-#endif
 
 #define NUM_RC_CHANNELS 16
 
@@ -244,6 +244,10 @@ public:
         CAMERA_AUTO_FOCUS =  169, // camera auto focus
         QSTABILIZE =         170, // QuadPlane QStabilize mode
         MAG_CAL =            171, // Calibrate compasses (disarmed only)
+        BATTERY_MPPT_ENABLE = 172,// Battery MPPT Power enable. high = ON, mid = auto (controlled by mppt/batt driver), low = OFF. This effects all MPPTs.
+        PLANE_AUTO_LANDING_ABORT = 173, // Abort Glide-slope or VTOL landing during payload place or do_land type mission items
+        CAMERA_IMAGE_TRACKING = 174, // camera image tracking
+
 
         // inputs from 200 will eventually used to replace RCMAP
         ROLL =               201, // roll input
@@ -341,6 +345,7 @@ protected:
     bool do_aux_function_camera_zoom(const AuxSwitchPos ch_flag);
     bool do_aux_function_camera_manual_focus(const AuxSwitchPos ch_flag);
     bool do_aux_function_camera_auto_focus(const AuxSwitchPos ch_flag);
+    bool do_aux_function_camera_image_tracking(const AuxSwitchPos ch_flag);
     void do_aux_function_runcam_control(const AuxSwitchPos ch_flag);
     void do_aux_function_runcam_osd_control(const AuxSwitchPos ch_flag);
     void do_aux_function_fence(const AuxSwitchPos ch_flag);
@@ -486,7 +491,7 @@ public:
     void reset_mode_switch();
     virtual void read_mode_switch();
 
-    // has_valid_input should be pure-virtual when Plane is converted
+    virtual bool in_rc_failsafe() const { return true; };
     virtual bool has_valid_input() const { return false; };
 
     virtual RC_Channel *get_arming_channel(void) const { return nullptr; };
@@ -499,64 +504,29 @@ public:
         }
     }
 
-    // should we ignore RC failsafe bits from receivers?
-    bool ignore_rc_failsafe(void) const {
-        return get_singleton() != nullptr && (_options & uint32_t(Option::IGNORE_FAILSAFE));
+    enum class Option {
+        IGNORE_RECEIVER         = (1U << 0), // RC receiver modules
+        IGNORE_OVERRIDES        = (1U << 1), // MAVLink overrides
+        IGNORE_FAILSAFE         = (1U << 2), // ignore RC failsafe bits
+        FPORT_PAD               = (1U << 3), // pad fport telem output
+        LOG_RAW_DATA            = (1U << 4), // log rc input bytes
+        ARMING_CHECK_THROTTLE   = (1U << 5), // run an arming check for neutral throttle
+        ARMING_SKIP_CHECK_RPY   = (1U << 6), // skip the an arming checks for the roll/pitch/yaw channels
+        ALLOW_SWITCH_REV        = (1U << 7), // honor the reversed flag on switches
+        CRSF_CUSTOM_TELEMETRY   = (1U << 8), // use passthrough data for crsf telemetry
+        SUPPRESS_CRSF_MESSAGE   = (1U << 9), // suppress CRSF mode/rate message for ELRS systems
+        MULTI_RECEIVER_SUPPORT  = (1U << 10), // allow multiple receivers
+        USE_CRSF_LQ_AS_RSSI     = (1U << 11), // returns CRSF link quality as RSSI value, instead of RSSI
+        CRSF_FM_DISARM_STAR     = (1U << 12), // when disarmed, add a star at the end of the flight mode in CRSF telemetry
+        ELRS_420KBAUD           = (1U << 13), // use 420kbaud for ELRS protocol
+    };
+
+    bool option_is_enabled(Option option) const {
+        return _options & uint32_t(option);
     }
 
-    // should we add a pad byte to Fport data
-    bool fport_pad(void) const {
-        return get_singleton() != nullptr && (_options & uint32_t(Option::FPORT_PAD));
-    }
-
-    // returns true if we should pass through data for crsf telemetry
-    bool crsf_custom_telemetry(void) const {
-        return get_singleton() != nullptr && (_options & uint32_t(Option::CRSF_CUSTOM_TELEMETRY));
-    }
-
-    // should a channel reverse option affect aux switches
-    bool switch_reverse_allowed(void) const {
-        return get_singleton() != nullptr && (_options & uint32_t(Option::ALLOW_SWITCH_REV));
-    }
-
-    bool ignore_overrides() const {
-        return _options & uint32_t(Option::IGNORE_OVERRIDES);
-    }
-
-    bool ignore_receiver() const {
-        return _options & uint32_t(Option::IGNORE_RECEIVER);
-    }
-
-    bool log_raw_data() const {
-        return _options & uint32_t(Option::LOG_DATA);
-    }
-    
     virtual bool arming_check_throttle() const {
-        return _options & uint32_t(Option::ARMING_CHECK_THROTTLE);
-    }
-
-    bool arming_skip_checks_rpy() const {
-        return _options & uint32_t(Option::ARMING_SKIP_CHECK_RPY);
-    }
-
-    bool suppress_crsf_message(void) const {
-        return get_singleton() != nullptr && (_options & uint32_t(Option::SUPPRESS_CRSF_MESSAGE));
-    }
-
-    bool multiple_receiver_support() const {
-        return _options & uint32_t(Option::MULTI_RECEIVER_SUPPORT);
-    }
-
-    bool use_crsf_lq_as_rssi(void) const {
-        return get_singleton() != nullptr && (_options & uint32_t(Option::USE_CRSF_LQ_AS_RSSI)) != 0;
-    }
-
-    bool crsf_fm_disarm_star(void) const {
-        return get_singleton() != nullptr && (_options & uint32_t(Option::CRSF_FM_DISARM_STAR)) != 0;
-    }
-
-    bool use_420kbaud_for_elrs(void) const {
-        return get_singleton() != nullptr && (_options & uint32_t(Option::ELRS_420KBAUD)) != 0;
+        return option_is_enabled(Option::ARMING_CHECK_THROTTLE);
     }
 
     // returns true if overrides should time out.  If true is returned
@@ -579,7 +549,7 @@ public:
     // get mask of enabled protocols
     uint32_t enabled_protocols() const;
 
-    // returns true if we have had a direct detach RC reciever, does not include overrides
+    // returns true if we have had a direct detach RC receiver, does not include overrides
     bool has_had_rc_receiver() const { return _has_had_rc_receiver; }
 
     // returns true if we have had an override on any channel
@@ -621,23 +591,6 @@ public:
 
 protected:
 
-    enum class Option {
-        IGNORE_RECEIVER         = (1U << 0), // RC receiver modules
-        IGNORE_OVERRIDES        = (1U << 1), // MAVLink overrides
-        IGNORE_FAILSAFE         = (1U << 2), // ignore RC failsafe bits
-        FPORT_PAD               = (1U << 3), // pad fport telem output
-        LOG_DATA                = (1U << 4), // log rc input bytes
-        ARMING_CHECK_THROTTLE   = (1U << 5), // run an arming check for neutral throttle
-        ARMING_SKIP_CHECK_RPY   = (1U << 6), // skip the an arming checks for the roll/pitch/yaw channels
-        ALLOW_SWITCH_REV        = (1U << 7), // honor the reversed flag on switches
-        CRSF_CUSTOM_TELEMETRY   = (1U << 8), // use passthrough data for crsf telemetry
-        SUPPRESS_CRSF_MESSAGE   = (1U << 9), // suppress CRSF mode/rate message for ELRS systems
-        MULTI_RECEIVER_SUPPORT  = (1U << 10), // allow multiple receivers
-        USE_CRSF_LQ_AS_RSSI     = (1U << 11), // returns CRSF link quality as RSSI value, instead of RSSI
-        CRSF_FM_DISARM_STAR     = (1U << 12), // when disarmed, add a star at the end of the flight mode in CRSF telemetry
-        ELRS_420KBAUD           = (1U << 13), // use 420kbaud for ELRS protocol
-    };
-
     void new_override_received() {
         has_new_overrides = true;
         _has_had_override = true;
@@ -650,7 +603,7 @@ private:
 
     uint32_t last_update_ms;
     bool has_new_overrides;
-    bool _has_had_rc_receiver; // true if we have had a direct detach RC reciever, does not include overrides
+    bool _has_had_rc_receiver; // true if we have had a direct detach RC receiver, does not include overrides
     bool _has_had_override; // true if we have had an override on any channel
 
     AP_Float _override_timeout;
@@ -677,3 +630,5 @@ private:
 };
 
 RC_Channels &rc();
+
+#endif  // AP_RC_CHANNEL_ENABLED

@@ -5,10 +5,6 @@
 
 #include "AP_Mount_Backend.h"
 
-#ifndef HAL_MOUNT_SERVO_ENABLED
-#define HAL_MOUNT_SERVO_ENABLED HAL_MOUNT_ENABLED
-#endif
-
 #if HAL_MOUNT_SERVO_ENABLED
 
 #include <AP_Math/AP_Math.h>
@@ -61,6 +57,6 @@ private:
     SRV_Channel::Aux_servo_function_t    _open_idx;  // SRV_Channel mount open function index
 
     MountTarget _angle_rad;         // angle target
-    Vector3f _angle_bf_output_deg;  // final body frame output angle in degrees
+    Vector3f _angle_bf_output_rad;  // final body frame output angle in radians
 };
 #endif // HAL_MOUNT_SERVO_ENABLED

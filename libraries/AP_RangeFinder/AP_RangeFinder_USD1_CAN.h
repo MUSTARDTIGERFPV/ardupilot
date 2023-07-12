@@ -1,13 +1,11 @@
 #pragma once
 
-#include "AP_RangeFinder_Backend.h"
-#include <AP_CANManager/AP_CANSensor.h>
-
-#ifndef AP_RANGEFINDER_USD1_CAN_ENABLED
-#define AP_RANGEFINDER_USD1_CAN_ENABLED (HAL_MAX_CAN_PROTOCOL_DRIVERS && AP_RANGEFINDER_BACKEND_DEFAULT_ENABLED)
-#endif
+#include "AP_RangeFinder_config.h"
 
 #if AP_RANGEFINDER_USD1_CAN_ENABLED
+
+#include "AP_RangeFinder_Backend.h"
+#include <AP_CANManager/AP_CANSensor.h>
 
 class USD1_MultiCAN;
 
@@ -45,7 +43,7 @@ private:
 class USD1_MultiCAN : public CANSensor {
 public:
     USD1_MultiCAN() : CANSensor("USD1") {
-        register_driver(AP_CANManager::Driver_Type_USD1);
+        register_driver(AP_CAN::Protocol::USD1);
     }
 
     // handler for incoming frames

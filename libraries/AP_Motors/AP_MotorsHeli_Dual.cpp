@@ -230,7 +230,7 @@ void AP_MotorsHeli_Dual::set_update_rate( uint16_t speed_hz )
 }
 
 // init_outputs
-bool AP_MotorsHeli_Dual::init_outputs()
+void AP_MotorsHeli_Dual::init_outputs()
 {
     if (!initialised_ok()) {
         // make sure 6 output channels are mapped
@@ -261,55 +261,6 @@ bool AP_MotorsHeli_Dual::init_outputs()
     }
 
     set_initialised_ok(_frame_class == MOTOR_FRAME_HELI_DUAL);
-
-    return true;
-}
-
-// output_test_seq - spin a motor at the pwm value specified
-//  motor_seq is the motor's sequence number from 1 to the number of motors on the frame
-//  pwm value is an actual pwm value that will be output, normally in the range of 1000 ~ 2000
-void AP_MotorsHeli_Dual::_output_test_seq(uint8_t motor_seq, int16_t pwm)
-{
-    // output to motors and servos
-    switch (motor_seq) {
-    case 1:
-        // swash servo 1
-        rc_write(AP_MOTORS_MOT_1, pwm);
-        break;
-    case 2:
-        // swash servo 2
-        rc_write(AP_MOTORS_MOT_2, pwm);
-        break;
-    case 3:
-        // swash servo 3
-        rc_write(AP_MOTORS_MOT_3, pwm);
-        break;
-    case 4:
-        // swash servo 4
-        rc_write(AP_MOTORS_MOT_4, pwm);
-        break;
-    case 5:
-        // swash servo 5
-        rc_write(AP_MOTORS_MOT_5, pwm);
-        break;
-    case 6:
-        // swash servo 6
-        rc_write(AP_MOTORS_MOT_6, pwm);
-        break;
-    case 7:
-        // main rotor
-        rc_write(AP_MOTORS_HELI_RSC, pwm);
-        break;
-    default:
-        // do nothing
-        break;
-    }
-}
-
-// set_desired_rotor_speed
-void AP_MotorsHeli_Dual::set_desired_rotor_speed(float desired_speed)
-{
-    _main_rotor.set_desired_speed(desired_speed);
 }
 
 // calculate_armed_scalars
@@ -461,25 +412,6 @@ float AP_MotorsHeli_Dual::get_swashplate (int8_t swash_num, int8_t swash_axis, f
         }
     }
     return swash_tilt;
-}
-
-// get_motor_mask - returns a bitmask of which outputs are being used for motors or servos (1 means being used)
-//  this can be used to ensure other pwm outputs (i.e. for servos) do not conflict
-uint32_t AP_MotorsHeli_Dual::get_motor_mask()
-{
-    // dual heli uses channels 1,2,3,4,5,6 and 8
-    uint32_t mask = 0;
-    for (uint8_t i=0; i<AP_MOTORS_HELI_DUAL_NUM_SWASHPLATE_SERVOS; i++) {
-        mask |= 1U << (AP_MOTORS_MOT_1+i);
-    }
-    if (_swashplate1.get_swash_type() == SWASHPLATE_TYPE_H4_90 || _swashplate1.get_swash_type() == SWASHPLATE_TYPE_H4_45) {
-        mask |= 1U << AP_MOTORS_MOT_7;
-    }
-    if (_swashplate2.get_swash_type() == SWASHPLATE_TYPE_H4_90 || _swashplate2.get_swash_type() == SWASHPLATE_TYPE_H4_45) {
-        mask |= 1U << AP_MOTORS_MOT_8;
-    }
-    mask |= 1U << AP_MOTORS_HELI_RSC;
-    return mask;
 }
 
 // update_motor_controls - sends commands to motor controllers

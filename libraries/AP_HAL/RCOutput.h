@@ -222,6 +222,15 @@ public:
     // static to allow use in the ChibiOS thread stuff
     static bool is_dshot_protocol(const enum output_mode mode);
 
+    static bool is_led_protocol(const enum output_mode mode) {
+      switch (mode) {
+      case MODE_NEOPIXEL:
+      case MODE_PROFILED:
+        return true;
+      default:
+        return false;
+      }
+    }
 
     // BLHeli32: https://github.com/bitdump/BLHeli/blob/master/BLHeli_32%20ARM/BLHeli_32%20Firmware%20specs/Digital_Cmd_Spec.txt
     // BLHeli_S: https://github.com/bitdump/BLHeli/blob/master/BLHeli_S%20SiLabs/Dshotprog%20spec%20BLHeli_S.txt
@@ -238,6 +247,8 @@ public:
       DSHOT_3D_OFF = 9,
       DSHOT_3D_ON = 10,
       DSHOT_SAVE = 12,
+      DSHOT_EXTENDED_TELEMETRY_ENABLE = 13,
+      DSHOT_EXTENDED_TELEMETRY_DISABLE = 14,
       DSHOT_NORMAL = 20,
       DSHOT_REVERSE = 21,
       // The following options are only available on BLHeli32
@@ -256,7 +267,9 @@ public:
     enum DshotEscType {
       DSHOT_ESC_NONE = 0,
       DSHOT_ESC_BLHELI = 1,
-      DSHOT_ESC_BLHELI_S = 2
+      DSHOT_ESC_BLHELI_S = 2,
+      DSHOT_ESC_BLHELI_EDT = 3,
+      DSHOT_ESC_BLHELI_EDT_S = 4
     };
 
     virtual void    set_output_mode(uint32_t mask, enum output_mode mode) {}
@@ -381,6 +394,9 @@ public:
     // neopixel does not use pulse widths at all
     static constexpr uint32_t PROFI_BIT_0_TICKS = 7;
     static constexpr uint32_t PROFI_BIT_1_TICKS = 14;
+
+    // suitably long LED output period to support high LED counts
+    static constexpr uint32_t LED_OUTPUT_PERIOD_US = 10000;
 
 protected:
 

@@ -137,6 +137,8 @@ const AP_Scheduler::Task Copter::scheduler_tasks[] = {
     FAST_TASK(update_home_from_EKF),
     // check if we've landed or crashed
     FAST_TASK(update_land_and_crash_detectors),
+    // surface tracking update
+    FAST_TASK(update_rangefinder_terrain_offset),
 #if HAL_MOUNT_ENABLED
     // camera mount's fast update
     FAST_TASK_CLASS(AP_Mount, &copter.camera_mount, update_fast),
@@ -163,7 +165,7 @@ const AP_Scheduler::Task Copter::scheduler_tasks[] = {
 #if HAL_PROXIMITY_ENABLED
     SCHED_TASK_CLASS(AP_Proximity,         &copter.g2.proximity,        update,         200,  50,  36),
 #endif
-#if BEACON_ENABLED == ENABLED
+#if AP_BEACON_ENABLED
     SCHED_TASK_CLASS(AP_Beacon,            &copter.g2.beacon,           update,         400,  50,  39),
 #endif
     SCHED_TASK(update_altitude,       10,    100,  42),
@@ -176,9 +178,11 @@ const AP_Scheduler::Task Copter::scheduler_tasks[] = {
     SCHED_TASK_CLASS(AC_Sprayer,           &copter.sprayer,               update,         3,  90,  54),
 #endif
     SCHED_TASK(three_hz_loop,          3,     75, 57),
+#if AP_SERVORELAYEVENTS_ENABLED
     SCHED_TASK_CLASS(AP_ServoRelayEvents,  &copter.ServoRelayEvents,      update_events, 50,  75,  60),
+#endif
     SCHED_TASK_CLASS(AP_Baro,              &copter.barometer,             accumulate,    50,  90,  63),
-#if PRECISION_LANDING == ENABLED
+#if AC_PRECLAND_ENABLED
     SCHED_TASK(update_precland,      400,     50,  69),
 #endif
 #if FRAME_CONFIG == HELI_FRAME
@@ -187,7 +191,6 @@ const AP_Scheduler::Task Copter::scheduler_tasks[] = {
 #if LOGGING_ENABLED == ENABLED
     SCHED_TASK(loop_rate_logging, LOOP_RATE,    50,  75),
 #endif
-    SCHED_TASK_CLASS(AP_Notify,            &copter.notify,              update,          50,  90,  78),
     SCHED_TASK(one_hz_loop,            1,    100,  81),
     SCHED_TASK(ekf_check,             10,     75,  84),
     SCHED_TASK(check_vibration,       10,     50,  87),
@@ -447,6 +450,26 @@ bool Copter::has_ekf_failsafed() const
 
 #endif // AP_SCRIPTING_ENABLED
 
+// returns true if vehicle is landing. Only used by Lua scripts
+bool Copter::is_landing() const
+{
+    return flightmode->is_landing();
+}
+
+// returns true if vehicle is taking off. Only used by Lua scripts
+bool Copter::is_taking_off() const
+{
+    return flightmode->is_taking_off();
+}
+
+bool Copter::current_mode_requires_mission() const
+{
+#if MODE_AUTO_ENABLED == ENABLED
+        return flightmode == &mode_auto;
+#else
+        return false;
+#endif
+}
 
 // rc_loops - reads user input from transmitter/receiver
 // called at 100hz
@@ -520,7 +543,7 @@ void Copter::ten_hz_logging_loop()
     if (should_log(MASK_LOG_ATTITUDE_MED) && !should_log(MASK_LOG_ATTITUDE_FAST) && !copter.flightmode->logs_attitude()) {
         Log_Write_Attitude();
     }
-    if (!should_log(MASK_LOG_ATTITUDE_FAST)) {
+    if (!should_log(MASK_LOG_ATTITUDE_FAST) && !copter.flightmode->logs_attitude()) {
     // log at 10Hz if PIDS bitmask is selected, even if no ATT bitmask is selected; logs at looprate if ATT_FAST and PIDS bitmask set
         Log_Write_PIDS();
     }
@@ -551,7 +574,7 @@ void Copter::ten_hz_logging_loop()
 #if HAL_PROXIMITY_ENABLED
         g2.proximity.log();  // Write proximity sensor distances
 #endif
-#if BEACON_ENABLED == ENABLED
+#if AP_BEACON_ENABLED
         g2.beacon.log();
 #endif
     }

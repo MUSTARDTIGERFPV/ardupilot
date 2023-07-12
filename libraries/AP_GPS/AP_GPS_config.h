@@ -1,7 +1,13 @@
 #pragma once
 
+#include <AP_HAL/AP_HAL_Boards.h>
+
+#ifndef AP_GPS_ENABLED
+#define AP_GPS_ENABLED 1
+#endif
+
 #ifndef AP_GPS_BACKEND_DEFAULT_ENABLED
-#define AP_GPS_BACKEND_DEFAULT_ENABLED 1
+#define AP_GPS_BACKEND_DEFAULT_ENABLED AP_GPS_ENABLED
 #endif
 
 #ifndef AP_GPS_ERB_ENABLED

@@ -53,6 +53,10 @@
 
 #include "AP_RCProtocol_SBUS.h"
 
+#include "AP_RCProtocol_config.h"
+
+#if AP_RCPROTOCOL_SBUS_ENABLED
+
 #define SBUS_FRAME_SIZE		25
 #define SBUS_INPUT_CHANNELS	16
 #define SBUS_FLAGS_BYTE		23
@@ -89,28 +93,6 @@ bool AP_RCProtocol_SBUS::sbus_decode(const uint8_t frame[25], uint16_t *values, 
     /* check frame boundary markers to avoid out-of-sync cases */
     if ((frame[0] != 0x0f)) {
         return false;
-    }
-
-    switch (frame[24]) {
-    case 0x00:
-        /* this is S.BUS 1 */
-        break;
-    case 0x03:
-        /* S.BUS 2 SLOT0: RX battery and external voltage */
-        break;
-    case 0x83:
-        /* S.BUS 2 SLOT1 */
-        break;
-    case 0x43:
-    case 0xC3:
-    case 0x23:
-    case 0xA3:
-    case 0x63:
-    case 0xE3:
-        break;
-    default:
-        /* we expect one of the bits above, but there are some we don't know yet */
-        break;
     }
 
     uint16_t chancount = SBUS_INPUT_CHANNELS;
@@ -219,3 +201,5 @@ void AP_RCProtocol_SBUS::process_byte(uint8_t b, uint32_t baudrate)
     }
     _process_byte(AP_HAL::micros(), b);
 }
+
+#endif  // AP_RCPROTOCOL_SBUS_ENABLED

@@ -6,21 +6,17 @@
 #include <GCS_MAVLink/include/mavlink/v2.0/checksum.h>
 #include <AP_SerialManager/AP_SerialManager.h>
 
-AP_Mount_SToRM32_serial::AP_Mount_SToRM32_serial(AP_Mount &frontend, AP_Mount_Params &params, uint8_t instance) :
-    AP_Mount_Backend(frontend, params, instance),
-    _reply_type(ReplyType_UNKNOWN)
-{}
-
 // init - performs any required initialisation for this instance
 void AP_Mount_SToRM32_serial::init()
 {
     const AP_SerialManager& serial_manager = AP::serialmanager();
 
-    _port = serial_manager.find_serial(AP_SerialManager::SerialProtocol_SToRM32, 0);
+    _port = serial_manager.find_serial(AP_SerialManager::SerialProtocol_Gimbal, 0);
     if (_port) {
         _initialised = true;
         set_mode((enum MAV_MOUNT_MODE)_params.default_mode.get());
     }
+    AP_Mount_Backend::init();
 
 }
 
@@ -175,7 +171,7 @@ void AP_Mount_SToRM32_serial::send_target_angles(const MountTarget& angle_target
     // send CMD_SETANGLE (Note: reversed pitch and yaw)
     cmd_set_angles_data.pitch = -degrees(angle_target_rad.pitch);
     cmd_set_angles_data.roll = degrees(angle_target_rad.roll);
-    cmd_set_angles_data.yaw = -degrees(get_bf_yaw_angle(angle_target_rad));
+    cmd_set_angles_data.yaw = -degrees(angle_target_rad.get_bf_yaw());
 
     uint8_t* buf = (uint8_t*)&cmd_set_angles_data;
 

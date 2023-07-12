@@ -47,6 +47,7 @@ public:
     friend class Tailsitter_Transition;
 
     friend class Mode;
+    friend class ModeManual;
     friend class ModeAuto;
     friend class ModeRTL;
     friend class ModeAvoidADSB;
@@ -180,6 +181,15 @@ public:
      */
     bool in_vtol_land_descent(void) const;
 
+    // Should we allow stick mixing from the pilot
+    bool allow_stick_mixing() const;
+
+    /*
+      should we disable the TECS controller?
+      only called when in an auto-throttle mode
+     */
+    bool should_disable_TECS() const;
+
 private:
     AP_AHRS &ahrs;
 
@@ -222,9 +232,6 @@ private:
 
     // check for quadplane assistance needed
     bool should_assist(float aspeed, bool have_airspeed);
-
-    // update transition handling
-    void update_transition(void);
 
     // check for an EKF yaw reset
     void check_yaw_reset(void);
@@ -583,7 +590,6 @@ private:
     AP_Float maximum_takeoff_airspeed;
     uint32_t takeoff_start_time_ms;
     uint32_t takeoff_time_limit_ms;
-    uint32_t rudder_takeoff_warn_ms;
 
     float last_land_final_agl;
 

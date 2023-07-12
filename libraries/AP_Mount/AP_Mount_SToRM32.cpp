@@ -9,11 +9,6 @@ extern const AP_HAL::HAL& hal;
 #define AP_MOUNT_STORM32_RESEND_MS  1000    // resend angle targets to gimbal once per second
 #define AP_MOUNT_STORM32_SEARCH_MS  60000   // search for gimbal for 1 minute after startup
 
-AP_Mount_SToRM32::AP_Mount_SToRM32(AP_Mount &frontend, AP_Mount_Params &params, uint8_t instance) :
-    AP_Mount_Backend(frontend, params, instance),
-    _chan(MAVLINK_COMM_0)
-{}
-
 // update mount position - should be called periodically
 void AP_Mount_SToRM32::update()
 {
@@ -107,7 +102,7 @@ void AP_Mount_SToRM32::update()
 // get attitude as a quaternion.  returns true on success
 bool AP_Mount_SToRM32::get_attitude_quaternion(Quaternion& att_quat)
 {
-    att_quat.from_euler(_angle_rad.roll, _angle_rad.pitch, get_bf_yaw_angle(_angle_rad));
+    att_quat.from_euler(_angle_rad.roll, _angle_rad.pitch, _angle_rad.get_bf_yaw());
     return true;
 }
 
@@ -154,7 +149,7 @@ void AP_Mount_SToRM32::send_do_mount_control(const MountTarget& angle_target_rad
                                   0,        // confirmation of zero means this is the first time this message has been sent
                                   -degrees(angle_target_rad.pitch),
                                   degrees(angle_target_rad.roll),
-                                  -degrees(get_bf_yaw_angle(angle_target_rad)),
+                                  -degrees(angle_target_rad.get_bf_yaw()),
                                   0, 0, 0,  // param4 ~ param6 unused
                                   MAV_MOUNT_MODE_MAVLINK_TARGETING);
 

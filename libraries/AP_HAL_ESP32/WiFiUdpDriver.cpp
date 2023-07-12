@@ -23,7 +23,6 @@
 #include "freertos/event_groups.h"
 #include "esp_system.h"
 #include "esp_wifi.h"
-#include "esp_event_loop.h"
 #include "nvs_flash.h"
 #include "esp_event.h"
 #include "esp_log.h"
@@ -45,12 +44,7 @@ WiFiUdpDriver::WiFiUdpDriver()
     accept_socket = -1;
 }
 
-void WiFiUdpDriver::begin(uint32_t b)
-{
-    begin(b, 0, 0);
-}
-
-void WiFiUdpDriver::begin(uint32_t b, uint16_t rxS, uint16_t txS)
+void WiFiUdpDriver::_begin(uint32_t b, uint16_t rxS, uint16_t txS)
 {
     if (_state == NOT_INITIALIZED) {
         initialize_wifi();
@@ -58,19 +52,24 @@ void WiFiUdpDriver::begin(uint32_t b, uint16_t rxS, uint16_t txS)
             return;
         }
 
-        xTaskCreate(_wifi_thread, "APM_WIFI", Scheduler::WIFI_SS, this, Scheduler::WIFI_PRIO, &_wifi_task_handle);
+	if (xTaskCreatePinnedToCore(_wifi_thread2, "APM_WIFI2", Scheduler::WIFI_SS2, this, Scheduler::WIFI_PRIO2, &_wifi_task_handle,0) != pdPASS) {
+            hal.console->printf("FAILED to create task _wifi_thread2\n");
+        } else {
+	    hal.console->printf("OK created task _wifi_thread2\n");
+    	}
+		
         _readbuf.set_size(RX_BUF_SIZE);
         _writebuf.set_size(TX_BUF_SIZE);
         _state = INITIALIZED;
     }
 }
 
-void WiFiUdpDriver::end()
+void WiFiUdpDriver::_end()
 {
     //TODO
 }
 
-void WiFiUdpDriver::flush()
+void WiFiUdpDriver::_flush()
 {
 }
 
@@ -79,17 +78,12 @@ bool WiFiUdpDriver::is_initialized()
     return true;
 }
 
-void WiFiUdpDriver::set_blocking_writes(bool blocking)
-{
-    //blocking writes do not used anywhere
-}
-
 bool WiFiUdpDriver::tx_pending()
 {
     return (_writebuf.available() > 0);
 }
 
-uint32_t WiFiUdpDriver::available()
+uint32_t WiFiUdpDriver::_available()
 {
     return _readbuf.available();
 }
@@ -101,19 +95,16 @@ uint32_t WiFiUdpDriver::txspace()
     return MAX(result, 0);
 }
 
-int16_t WiFiUdpDriver::read()
+ssize_t WiFiUdpDriver::_read(uint8_t *buf, uint16_t count)
 {
     if (!_read_mutex.take_nonblocking()) {
-        return 0;
+        return false;
     }
 
-    uint8_t byte;
-    if (!_readbuf.read_byte(&byte)) {
-        return -1;
-    }
+    auto ret = _readbuf.read(buf, count);
 
     _read_mutex.give();
-    return byte;
+    return ret;
 }
 
 bool WiFiUdpDriver::start_listen()
@@ -209,12 +200,7 @@ void WiFiUdpDriver::initialize_wifi()
     esp_wifi_start();
 }
 
-size_t WiFiUdpDriver::write(uint8_t c)
-{
-    return write(&c,1);
-}
-
-size_t WiFiUdpDriver::write(const uint8_t *buffer, size_t size)
+size_t WiFiUdpDriver::_write(const uint8_t *buffer, size_t size)
 {
     if (!_write_mutex.take_nonblocking()) {
         return 0;
@@ -224,13 +210,13 @@ size_t WiFiUdpDriver::write(const uint8_t *buffer, size_t size)
     return ret;
 }
 
-void WiFiUdpDriver::_wifi_thread(void *arg)
+void WiFiUdpDriver::_wifi_thread2(void *arg)
 {
     WiFiUdpDriver *self = (WiFiUdpDriver *) arg;
     while (true) {
         struct timeval tv = {
             .tv_sec = 0,
-            .tv_usec = 1000,
+            .tv_usec = 100*1000, // 10 times a sec, we try to write-all even if we read nothing , at just 1000, it floggs the APM_WIFI2 task cpu usage unecessarily, slowing APM_WIFI1 response
         };
         fd_set rfds;
         FD_ZERO(&rfds);
@@ -244,7 +230,7 @@ void WiFiUdpDriver::_wifi_thread(void *arg)
     }
 }
 
-bool WiFiUdpDriver::discard_input()
+bool WiFiUdpDriver::_discard_input()
 {
     return false;
 }

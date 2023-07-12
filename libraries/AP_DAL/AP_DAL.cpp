@@ -303,7 +303,7 @@ void AP_DAL::WriteLogMessage(enum LogMessages msg_type, void *msg, const void *o
 */
 bool AP_DAL::ekf_low_time_remaining(EKFType etype, uint8_t core)
 {
-    static_assert(INS_MAX_INSTANCES <= 4, "max 4 IMUs");
+    static_assert(MAX_EKF_CORES <= 4, "max 4 EKF cores supported");
     const uint8_t mask = (1U<<(core+(uint8_t(etype)*4)));
 #if !APM_BUILD_TYPE(APM_BUILD_AP_DAL_Standalone) && !APM_BUILD_TYPE(APM_BUILD_Replay)
     /*
@@ -350,6 +350,17 @@ void AP_DAL::writeExtNavData(const Vector3f &pos, const Quaternion &quat, float 
     _REPH.delay_ms = delay_ms;
     _REPH.resetTime_ms = resetTime_ms;
     WRITE_REPLAY_BLOCK_IFCHANGED(REPH, _REPH, old);
+}
+
+void AP_DAL::log_SetLatLng(const Location &loc, float posAccuracy, uint32_t timestamp_ms)
+{
+    end_frame();
+    const log_RSLL old = _RSLL;
+    _RSLL.lat = loc.lat;
+    _RSLL.lng = loc.lng;
+    _RSLL.posAccSD = posAccuracy;
+    _RSLL.timestamp_ms = timestamp_ms;
+    WRITE_REPLAY_BLOCK_IFCHANGED(RSLL, _RSLL, old);
 }
 
 // log external velocity data
@@ -484,6 +495,17 @@ void AP_DAL::handle_message(const log_RBOH &msg, NavEKF2 &ekf2, NavEKF3 &ekf3)
     _RBOH = msg;
     // note that EKF2 does not support body frame odomotry
     ekf3.writeBodyFrameOdom(msg.quality, msg.delPos, msg.delAng, msg.delTime, msg.timeStamp_ms, msg.delay_ms, msg.posOffset);
+}
+
+/*
+  handle position reset
+ */
+void AP_DAL::handle_message(const log_RSLL &msg, NavEKF2 &ekf2, NavEKF3 &ekf3)
+{
+    _RSLL = msg;
+    // note that EKF2 does not support body frame odomotry
+    const Location loc {msg.lat, msg.lng, 0, Location::AltFrame::ABSOLUTE };
+    ekf3.setLatLng(loc, msg.posAccSD, msg.timestamp_ms);
 }
 #endif // APM_BUILD_Replay
 

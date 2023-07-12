@@ -1,6 +1,6 @@
 #include "AP_Camera_Mount.h"
 
-#if AP_CAMERA_ENABLED
+#if AP_CAMERA_MOUNT_ENABLED
 #include <AP_Mount/AP_Mount.h>
 
 extern const AP_HAL::HAL& hal;
@@ -8,13 +8,11 @@ extern const AP_HAL::HAL& hal;
 // entry point to actually take a picture.  returns true on success
 bool AP_Camera_Mount::trigger_pic()
 {
-#if HAL_MOUNT_ENABLED
     AP_Mount* mount = AP::mount();
     if (mount != nullptr) {
         mount->take_picture(0);
         return true;
     }
-#endif
     return false;
 }
 
@@ -22,51 +20,50 @@ bool AP_Camera_Mount::trigger_pic()
 // start_recording should be true to start recording, false to stop recording
 bool AP_Camera_Mount::record_video(bool start_recording)
 {
-#if HAL_MOUNT_ENABLED
     AP_Mount* mount = AP::mount();
     if (mount != nullptr) {
         return mount->record_video(0, start_recording);
     }
-#endif
     return false;
 }
 
-// zoom in, out or hold.  returns true on success
-// zoom out = -1, hold = 0, zoom in = 1
-bool AP_Camera_Mount::set_zoom_step(int8_t zoom_step)
+// set zoom specified as a rate or percentage
+bool AP_Camera_Mount::set_zoom(ZoomType zoom_type, float zoom_value)
 {
-#if HAL_MOUNT_ENABLED
     AP_Mount* mount = AP::mount();
     if (mount != nullptr) {
-        return mount->set_zoom_step(0, zoom_step);
+        return mount->set_zoom(0, zoom_type, zoom_value);
     }
-#endif
     return false;
 }
 
-// focus in, out or hold.  returns true on success
+// set focus specified as rate, percentage or auto
 // focus in = -1, focus hold = 0, focus out = 1
-bool AP_Camera_Mount::set_manual_focus_step(int8_t focus_step)
+SetFocusResult AP_Camera_Mount::set_focus(FocusType focus_type, float focus_value)
 {
-#if HAL_MOUNT_ENABLED
     AP_Mount* mount = AP::mount();
     if (mount != nullptr) {
-        return mount->set_manual_focus_step(0, focus_step);
+        return mount->set_focus(0, focus_type, focus_value);
     }
-#endif
-    return false;
+    return SetFocusResult::FAILED;
 }
 
-// auto focus.  returns true on success
-bool AP_Camera_Mount::set_auto_focus()
+// send camera information message to GCS
+void AP_Camera_Mount::send_camera_information(mavlink_channel_t chan) const
 {
-#if HAL_MOUNT_ENABLED
     AP_Mount* mount = AP::mount();
     if (mount != nullptr) {
-        return mount->set_auto_focus(0);
+        return mount->send_camera_information(chan);
     }
-#endif
-    return false;
 }
 
-#endif // AP_CAMERA_ENABLED
+// send camera settings message to GCS
+void AP_Camera_Mount::send_camera_settings(mavlink_channel_t chan) const
+{
+    AP_Mount* mount = AP::mount();
+    if (mount != nullptr) {
+        return mount->send_camera_settings(chan);
+    }
+}
+
+#endif // AP_CAMERA_MOUNT_ENABLED

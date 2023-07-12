@@ -111,6 +111,7 @@ public:
 
     // check initialisation succeeded
     virtual bool        arming_checks(size_t buflen, char *buffer) const;
+    virtual bool        motor_test_checks(size_t buflen, char *buffer) const;
     bool                initialised_ok() const { return _initialised_ok; }
     void                set_initialised_ok(bool val) { _initialised_ok = val; }
 
@@ -188,9 +189,6 @@ public:
     // get_spool_state - get current spool state
     enum SpoolState  get_spool_state(void) const { return _spool_state; }
 
-    // set_density_ratio - sets air density as a proportion of sea level density
-    void                set_air_density_ratio(float ratio) { _air_density_ratio = ratio; }
-
     // set_dt / get_dt - dt is the time since the last time the motor mixers were updated
     //   _dt should be set based on the time of the last IMU read used by these controllers
     //   the motor mixers should run on each loop to ensure normal operation
@@ -199,15 +197,20 @@ public:
 
     // structure for holding motor limit flags
     struct AP_Motors_limit {
-        uint8_t roll            : 1; // we have reached roll or pitch limit
-        uint8_t pitch           : 1; // we have reached roll or pitch limit
-        uint8_t yaw             : 1; // we have reached yaw limit
-        uint8_t throttle_lower  : 1; // we have reached throttle's lower limit
-        uint8_t throttle_upper  : 1; // we have reached throttle's upper limit
+        bool roll;           // we have reached roll or pitch limit
+        bool pitch;          // we have reached roll or pitch limit
+        bool yaw;            // we have reached yaw limit
+        bool throttle_lower; // we have reached throttle's lower limit
+        bool throttle_upper; // we have reached throttle's upper limit
     } limit;
 
     // set limit flag for pitch, roll and yaw
     void set_limit_flag_pitch_roll_yaw(bool flag);
+
+#if AP_SCRIPTING_ENABLED
+    // set limit flag for pitch, roll and yaw
+    void set_external_limits(bool roll, bool pitch, bool yaw, bool throttle_lower, bool throttle_upper);
+#endif
 
     //
     // virtual functions that should be implemented by child classes
@@ -275,6 +278,11 @@ public:
     // write log, to be called at 10hz
     virtual void Log_Write() {};
 
+    enum MotorOptions : uint8_t {
+        BATT_RAW_VOLTAGE = (1 << 0U)
+    };
+    bool has_option(MotorOptions option) { return _options.get() & uint8_t(option); }
+
 protected:
     // output functions that should be overloaded by child classes
     virtual void        output_armed_stabilizing() = 0;
@@ -319,9 +327,6 @@ protected:
     DesiredSpoolState   _spool_desired;             // desired spool state
     SpoolState          _spool_state;               // current spool mode
 
-    // air pressure compensation variables
-    float               _air_density_ratio;     // air density / sea level density - decreases in altitude
-
     // mask of what channels need fast output
     uint32_t            _motor_fast_mask;
 
@@ -340,6 +345,9 @@ protected:
     bool                _thrust_boost;          // true if thrust boost is enabled to handle motor failure
     bool                _thrust_balanced;       // true when output thrust is well balanced
     float               _thrust_boost_ratio;    // choice between highest and second highest motor output for output mixing (0 ~ 1). Zero is normal operation
+
+    // motor options
+    AP_Int16            _options;
 
     MAV_TYPE _mav_type; // MAV_TYPE_GENERIC = 0;
 
@@ -367,6 +375,9 @@ protected:
 #if AP_SCRIPTING_ENABLED
     // Custom frame string set from scripting
     char* custom_frame_string;
+
+    // external limits from scripting
+    AP_Motors_limit external_limits;
 #endif
 
 private:

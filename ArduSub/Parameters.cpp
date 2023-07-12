@@ -409,17 +409,19 @@ const AP_Param::Info Sub::var_info[] = {
     GOBJECT(camera, "CAM", AP_Camera),
 #endif
 
+#if AP_RELAY_ENABLED
     // @Group: RELAY_
     // @Path: ../libraries/AP_Relay/AP_Relay.cpp
     GOBJECT(relay,                  "RELAY_", AP_Relay),
+#endif
 
     // @Group: COMPASS_
     // @Path: ../libraries/AP_Compass/AP_Compass.cpp
     GOBJECT(compass,        "COMPASS_", Compass),
 
-    // @Group: INS_
+    // @Group: INS
     // @Path: ../libraries/AP_InertialSensor/AP_InertialSensor.cpp
-    GOBJECT(ins,            "INS_", AP_InertialSensor),
+    GOBJECT(ins,            "INS", AP_InertialSensor),
 
     // @Group: WPNAV_
     // @Path: ../libraries/AC_WPNav/AC_WPNav.cpp

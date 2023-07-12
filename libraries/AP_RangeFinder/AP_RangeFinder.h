@@ -14,6 +14,8 @@
  */
 #pragma once
 
+#include "AP_RangeFinder_config.h"
+
 #include <AP_Common/AP_Common.h>
 #include <AP_HAL/AP_HAL_Boards.h>
 #include <AP_HAL/Semaphores.h>
@@ -21,14 +23,6 @@
 #include <GCS_MAVLink/GCS_MAVLink.h>
 #include <AP_MSP/msp.h>
 #include "AP_RangeFinder_Params.h"
-
-#ifndef AP_RANGEFINDER_ENABLED
-#define AP_RANGEFINDER_ENABLED 1
-#endif
-
-#ifndef AP_RANGEFINDER_BACKEND_DEFAULT_ENABLED
-#define AP_RANGEFINDER_BACKEND_DEFAULT_ENABLED AP_RANGEFINDER_ENABLED
-#endif
 
 // Maximum number of range finder instances available on this platform
 #ifndef RANGEFINDER_MAX_INSTANCES 
@@ -47,17 +41,13 @@
 #define RANGEFINDER_PREARM_REQUIRED_CHANGE_CM   50
 #endif
 
-#ifndef HAL_MSP_RANGEFINDER_ENABLED
-#define HAL_MSP_RANGEFINDER_ENABLED HAL_MSP_ENABLED && !HAL_MINIMIZE_FEATURES
-#endif
-
 class AP_RangeFinder_Backend;
 
 class RangeFinder
 {
     friend class AP_RangeFinder_Backend;
     //UAVCAN drivers are initialised in the Backend, hence list of drivers is needed there.
-    friend class AP_RangeFinder_UAVCAN;
+    friend class AP_RangeFinder_DroneCAN;
 public:
     RangeFinder();
 
@@ -103,6 +93,7 @@ public:
         Benewake_CAN = 34,
         TeraRanger_Serial = 35,
         Lua_Scripting = 36,
+        NoopLoop_P = 37,
         SIM = 100,
     };
 
@@ -219,7 +210,6 @@ private:
     RangeFinder_State state[RANGEFINDER_MAX_INSTANCES];
     AP_RangeFinder_Backend *drivers[RANGEFINDER_MAX_INSTANCES];
     uint8_t num_instances;
-    bool init_done;
     HAL_Semaphore detect_sem;
     float estimated_terrain_height;
     Vector3f pos_offset_zero;   // allows returning position offsets of zero for invalid requests

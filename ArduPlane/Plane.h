@@ -191,6 +191,7 @@ private:
 
     // flight modes convenience array
     AP_Int8 *flight_modes = &g.flight_mode1;
+    const uint8_t num_flight_modes = 6;
 
     AP_FixedWing::Rangefinder_State rangefinder_state;
 
@@ -250,8 +251,14 @@ private:
     AP_Radar radar;
 #endif
 
+#if HAL_RALLY_ENABLED
     // Rally Ponints
     AP_Rally rally;
+#endif
+
+    // returns a Location for a rally point or home; if
+    // HAL_RALLY_ENABLED is false, just home.
+    Location calc_best_rally_or_home_location(const Location &current_loc, float rtl_home_alt_amsl_cm) const;
 
 #if OSD_ENABLED || OSD_PARAM_ENABLED
     AP_OSD osd;
@@ -386,6 +393,7 @@ private:
     // Ground speed
     // The amount current ground speed is below min ground speed.  Centimeters per second
     int32_t groundspeed_undershoot;
+    bool groundspeed_undershoot_is_valid;
 
     // Difference between current altitude and desired altitude.  Centimeters
     int32_t altitude_error_cm;
@@ -401,11 +409,13 @@ private:
     struct {
         uint32_t last_tkoff_arm_time;
         uint32_t last_check_ms;
+        uint32_t rudder_takeoff_warn_ms;
         uint32_t last_report_ms;
         bool launchTimerStarted;
         uint8_t accel_event_counter;
         uint32_t accel_event_ms;
         uint32_t start_time_ms;
+        bool waiting_for_rudder_neutral;
     } takeoff_state;
 
     // ground steering controller state
@@ -686,6 +696,9 @@ private:
 
         // The amount of time we should stay in a loiter for the Loiter Time command.  Milliseconds.
         uint32_t time_max_ms;
+
+        // current value of loiter radius in metres used by the controller
+        float radius;
     } loiter;
 
     // Conditional command
@@ -859,7 +872,6 @@ private:
     float stabilize_roll_get_roll_out();
     void stabilize_pitch();
     float stabilize_pitch_get_pitch_out();
-    void stabilize_stick_mixing_direct();
     void stabilize_stick_mixing_fbw();
     void stabilize_yaw();
     void calc_nav_yaw_coordinated();
@@ -966,7 +978,6 @@ private:
     // control_modes.cpp
     void read_control_switch();
     uint8_t readSwitch(void) const;
-    void reset_control_switch();
     void autotune_start(void);
     void autotune_restore(void);
     void autotune_enable(bool enable);
@@ -974,6 +985,10 @@ private:
     bool mode_allows_autotuning(void);
     uint8_t get_mode() const override { return (uint8_t)control_mode->mode_number(); }
     Mode *mode_from_mode_num(const enum Mode::Number num);
+    bool current_mode_requires_mission() const override {
+        return control_mode == &mode_auto;
+    }
+
     bool autotuning;
 
     // events.cpp
@@ -993,6 +1008,7 @@ private:
 
     // ArduPlane.cpp
     void disarm_if_autoland_complete();
+    bool trigger_land_abort(const float climb_to_alt_m);
     void get_osd_roll_pitch_rad(float &roll, float &pitch) const override;
     float tecs_hgt_afe(void);
     void efi_update(void);
@@ -1020,6 +1036,7 @@ private:
     void update_fly_forward(void);
     void update_flight_stage();
     void set_flight_stage(AP_FixedWing::FlightStage fs);
+    bool flight_option_enabled(FlightOptions flight_option) const;
 
     // navigation.cpp
     void loiter_angle_reset(void);
@@ -1063,6 +1080,7 @@ private:
     bool should_log(uint32_t mask);
     int8_t throttle_percentage(void);
     void notify_mode(const Mode& mode);
+    bool gcs_mode_enabled(const Mode::Number mode_num) const;
 
     // takeoff.cpp
     bool auto_takeoff_check(void);
@@ -1078,7 +1096,6 @@ private:
     // servos.cpp
     void set_servos_idle(void);
     void set_servos();
-    void set_servos_manual_passthrough(void);
     void set_servos_controlled(void);
     void set_servos_old_elevons(void);
     void set_servos_flaps(void);
@@ -1098,6 +1115,7 @@ private:
     void channel_function_mixer(SRV_Channel::Aux_servo_function_t func1_in, SRV_Channel::Aux_servo_function_t func2_in,
                                 SRV_Channel::Aux_servo_function_t func1_out, SRV_Channel::Aux_servo_function_t func2_out) const;
     void flaperon_update();
+    void indicate_waiting_for_rud_neutral_to_takeoff(void);
 
     // is_flying.cpp
     void update_is_flying_5Hz(void);
@@ -1225,6 +1243,8 @@ private:
 
 public:
     void failsafe_check(void);
+    bool is_landing() const override;
+    bool is_taking_off() const override;
 #if AP_SCRIPTING_ENABLED
     bool set_target_location(const Location& target_loc) override;
     bool get_target_location(Location& target_loc) override;

@@ -45,14 +45,7 @@ function install_pymavlink() {
     fi
 }
 
-function run_autotest() {
-    NAME="$1"
-    BVEHICLE="$2"
-    RVEHICLE="$3"
-
-    # report on what cpu's we have for later log review if needed
-    cat /proc/cpuinfo
-
+function install_mavproxy() {
     if [ $mavproxy_installed -eq 0 ]; then
         echo "Installing MAVProxy"
         pushd /tmp
@@ -65,6 +58,17 @@ function run_autotest() {
         # now uninstall the version of pymavlink pulled in by MAVProxy deps:
         python -m pip uninstall -y pymavlink
     fi
+}
+
+function run_autotest() {
+    NAME="$1"
+    BVEHICLE="$2"
+    RVEHICLE="$3"
+
+    # report on what cpu's we have for later log review if needed
+    cat /proc/cpuinfo
+
+    install_mavproxy
     install_pymavlink
     unset BUILDROOT
     echo "Running SITL $NAME test"
@@ -78,6 +82,9 @@ function run_autotest() {
     fi
     if [ "x$CI_BUILD_DEBUG" != "x" ]; then
         w="$w --debug"
+    fi
+    if [ "$NAME" == "Plane" ]; then
+        w="$w --num-aux-imus=2"
     fi
     if [ "$NAME" == "Examples" ]; then
         w="$w --speedup=5 --timeout=14400 --debug --no-clean"
@@ -123,7 +130,7 @@ for t in $CI_BUILD_TARGET; do
     fi
     if [ "$t" == "sitltest-can" ]; then
         echo "Building SITL Periph GPS"
-        $waf configure --board sitl
+        $waf configure --board sitl --force-32bit
         $waf copter
         run_autotest "Copter" "build.SITLPeriphGPS" "test.CAN"
         continue
@@ -245,6 +252,14 @@ for t in $CI_BUILD_TARGET; do
         continue
     fi
 
+    if [ "$t" == "CubeRedPrimary-bootloader" ]; then
+        echo "Building CubeRedPrimary bootloader"
+        $waf configure --board CubeRedPrimary --bootloader
+        $waf clean
+        $waf bootloader
+        continue
+    fi
+
     if [ "$t" == "fmuv3-bootloader" ]; then
         echo "Building fmuv3 bootloader"
         $waf configure --board fmuv3 --bootloader
@@ -278,6 +293,8 @@ for t in $CI_BUILD_TARGET; do
         $waf configure --board Durandal
         $waf clean
         $waf copter
+        echo "Building CPUInfo"
+        $waf --target=tool/CPUInfo
 
         # test external flash build
         echo "Building SPRacingH7"
@@ -298,6 +315,24 @@ for t in $CI_BUILD_TARGET; do
     if [ "$t" == "CubeOrange-ODID" ]; then
         echo "Building CubeOrange-ODID"
         $waf configure --board CubeOrange-ODID
+        $waf clean
+        $waf copter
+        $waf plane
+        continue
+    fi
+
+    if [ "$t" == "dds-stm32h7" ]; then
+        echo "Building with DDS support on a STM32H7"
+        $waf configure --board Durandal --enable-dds
+        $waf clean
+        $waf copter
+        $waf plane
+        continue
+    fi
+
+    if [ "$t" == "dds-sitl" ]; then
+        echo "Building with DDS support on SITL"
+        $waf configure --board sitl --enable-dds
         $waf clean
         $waf copter
         $waf plane
@@ -331,11 +366,29 @@ for t in $CI_BUILD_TARGET; do
     if [ "$t" == "replay" ]; then
         echo "Building replay"
         $waf configure --board sitl --debug --disable-scripting
+        
         $waf replay
         echo "Building AP_DAL standalone test"
         $waf configure --board sitl --debug --disable-scripting --no-gcs
+        
         $waf --target tool/AP_DAL_Standalone
         $waf clean
+        continue
+    fi
+
+    if [ "$t" == "validate_board_list" ]; then
+        echo "Validating board list"
+        ./Tools/autotest/validate_board_list.py
+        continue
+    fi
+
+    if [ "$t" == "check_autotest_options" ]; then
+        echo "Checking autotest options"
+        install_mavproxy
+        install_pymavlink
+        ./Tools/autotest/autotest.py --help
+        ./Tools/autotest/autotest.py --list
+        ./Tools/autotest/autotest.py --list-subtests
         continue
     fi
 
@@ -357,6 +410,12 @@ for t in $CI_BUILD_TARGET; do
     if [ "$t" == "python-cleanliness" ]; then
         echo "Checking Python code cleanliness"
         ./Tools/scripts/run_flake8.py
+        continue
+    fi
+
+    if [ "$t" == "astyle-cleanliness" ]; then
+        echo "Checking AStyle code cleanliness"
+        ./Tools/scripts/run_astyle.py
         continue
     fi
 
@@ -386,6 +445,13 @@ for t in $CI_BUILD_TARGET; do
         continue
     fi
 
+    if [ "$t" == "param_parse" ]; then
+        for v in Rover AntennaTracker ArduCopter ArduPlane ArduSub Blimp; do
+            python Tools/autotest/param_metadata/param_parse.py --vehicle $v
+        done
+        continue
+    fi
+
     if [[ -z ${CI_CRON_JOB+1} ]]; then
         echo "Starting waf build for board ${t}..."
         $waf configure --board "$t" \
@@ -403,13 +469,6 @@ for t in $CI_BUILD_TARGET; do
         continue
     fi
 done
-
-python Tools/autotest/param_metadata/param_parse.py --vehicle Rover
-python Tools/autotest/param_metadata/param_parse.py --vehicle AntennaTracker
-python Tools/autotest/param_metadata/param_parse.py --vehicle ArduCopter
-python Tools/autotest/param_metadata/param_parse.py --vehicle ArduPlane
-python Tools/autotest/param_metadata/param_parse.py --vehicle ArduSub
-python Tools/autotest/param_metadata/param_parse.py --vehicle Blimp
 
 echo build OK
 exit 0

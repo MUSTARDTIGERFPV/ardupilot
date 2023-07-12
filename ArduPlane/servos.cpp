@@ -376,32 +376,6 @@ void Plane::set_servos_idle(void)
     SRV_Channels::output_ch_all();
 }
 
-/*
-  pass through channels in manual mode
- */
-void Plane::set_servos_manual_passthrough(void)
-{
-    SRV_Channels::set_output_scaled(SRV_Channel::k_aileron, roll_in_expo(false));
-    SRV_Channels::set_output_scaled(SRV_Channel::k_elevator, pitch_in_expo(false));
-    SRV_Channels::set_output_scaled(SRV_Channel::k_rudder, rudder_in_expo(false));
-    float throttle = get_throttle_input(true);
-    SRV_Channels::set_output_scaled(SRV_Channel::k_throttle, throttle);
-
-#if HAL_QUADPLANE_ENABLED
-    if (quadplane.available() && quadplane.option_is_set(QuadPlane::OPTION::IDLE_GOV_MANUAL)) {
-        // for quadplanes it can be useful to run the idle governor in MANUAL mode
-        // as it prevents the VTOL motors from running
-        int8_t min_throttle = aparm.throttle_min.get();
-
-        // apply idle governor
-#if AP_ICENGINE_ENABLED
-        g2.ice_control.update_idle_governor(min_throttle);
-#endif
-        throttle = MAX(throttle, min_throttle);
-        SRV_Channels::set_output_scaled(SRV_Channel::k_throttle, throttle);
-    }
-#endif
-}
 
 /*
   Scale the throttle to conpensate for battery voltage drop
@@ -863,16 +837,11 @@ void Plane::set_servos(void)
     // clear ground_steering to ensure manual control if the yaw stabilizer doesn't run
     steering_control.ground_steering = false;
 
-    if (control_mode == &mode_training) {
-        steering_control.rudder = rudder_in_expo(false);
-    }
-    
+
     SRV_Channels::set_output_scaled(SRV_Channel::k_rudder, steering_control.rudder);
     SRV_Channels::set_output_scaled(SRV_Channel::k_steering, steering_control.steering);
 
-    if (control_mode == &mode_manual) {
-        set_servos_manual_passthrough();
-    } else {
+    if (control_mode != &mode_manual) {
         set_servos_controlled();
     }
 
@@ -969,6 +938,23 @@ void Plane::landing_neutral_control_surface_servos(void)
 }
 
 /*
+  sets rudder/vtail , and elevon to indicator positions that we are in a rudder arming waiting for neutral stick state
+*/
+void Plane::indicate_waiting_for_rud_neutral_to_takeoff(void)
+{
+    if (takeoff_state.waiting_for_rudder_neutral)  {
+        SRV_Channels::set_output_scaled(SRV_Channel::k_rudder, 0);
+        channel_function_mixer(SRV_Channel::k_rudder,  SRV_Channel::k_elevator, SRV_Channel::k_vtail_right, SRV_Channel::k_vtail_left);
+        if (!SRV_Channels::function_assigned(SRV_Channel::k_rudder) && !SRV_Channels::function_assigned(SRV_Channel::k_vtail_left)) {
+            // if no rudder indication possible, neutral elevons during wait becuase on takeoff stance they are usually both full up
+            SRV_Channels::set_output_scaled(SRV_Channel::k_elevon_right, 0);
+            SRV_Channels::set_output_scaled(SRV_Channel::k_elevon_left, 0);        
+        }
+    }
+}
+
+
+/*
   run configured output mixer. This takes calculated servo_out values
   for each channel and calculates PWM values, then pushes them to
   hal.rcout
@@ -998,6 +984,11 @@ void Plane::servos_output(void)
 
     //  set control surface servos to neutral
     landing_neutral_control_surface_servos();
+    
+    // set rudder arm waiting for neutral control throws (rudder neutral, aileron/rt vtail/rt elevon to full right)
+    if (flight_option_enabled(FlightOptions::INDICATE_WAITING_FOR_RUDDER_NEUTRAL)) {
+        indicate_waiting_for_rud_neutral_to_takeoff();
+    }
 
     // support MANUAL_RCMASK
     if (g2.manual_rc_mask.get() != 0 && control_mode == &mode_manual) {

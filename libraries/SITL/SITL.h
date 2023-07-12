@@ -26,6 +26,7 @@
 #include "SIM_IntelligentEnergy24.h"
 #include "SIM_Ship.h"
 #include "SIM_GPS.h"
+#include "SIM_DroneCANDevice.h"
 
 namespace SITL {
 
@@ -391,19 +392,6 @@ public:
         AP_Float hdg; // 0 to 360
     } opos;
 
-    AP_Int8 _safety_switch_state;
-
-    AP_HAL::Util::safety_state safety_switch_state() const {
-        return (AP_HAL::Util::safety_state)_safety_switch_state.get();
-    }
-    void force_safety_off() {
-        _safety_switch_state.set((uint8_t)AP_HAL::Util::SAFETY_ARMED);
-    }
-    bool force_safety_on() {
-        _safety_switch_state.set((uint8_t)AP_HAL::Util::SAFETY_DISARMED);
-        return true;
-    }
-
     uint16_t irlock_port;
 
     time_t start_time_UTC;
@@ -448,6 +436,9 @@ public:
     RichenPower richenpower_sim;
     IntelligentEnergy24 ie24_sim;
     FETtecOneWireESC fetteconewireesc_sim;
+#if AP_TEST_DRONECAN_DRIVERS
+    DroneCANDevice dronecan_sim;
+#endif
 
     // ESC telemetry
     AP_Int8 esc_telem;
@@ -488,7 +479,7 @@ public:
     AP_Float imu_temp_end;
     AP_Float imu_temp_tconst;
     AP_Float imu_temp_fixed;
-    AP_InertialSensor::TCal imu_tcal[INS_MAX_INSTANCES];
+    AP_InertialSensor_TCal imu_tcal[INS_MAX_INSTANCES];
 #endif
 
     // IMU control parameters

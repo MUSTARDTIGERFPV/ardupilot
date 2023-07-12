@@ -13,15 +13,15 @@
    along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "AP_VisualOdom.h"
+#include "AP_VisualOdom_config.h"
 
 #if HAL_VISUALODOM_ENABLED
 
+#include "AP_VisualOdom.h"
 #include "AP_VisualOdom_Backend.h"
 #include "AP_VisualOdom_MAV.h"
 #include "AP_VisualOdom_IntelT265.h"
 #include <AP_AHRS/AP_AHRS.h>
-#include <AP_Logger/AP_Logger.h>
 
 extern const AP_HAL::HAL &hal;
 
@@ -128,13 +128,17 @@ void AP_VisualOdom::init()
     case VisualOdom_Type::None:
         // do nothing
         break;
+#if AP_VISUALODOM_MAV_ENABLED
     case VisualOdom_Type::MAV:
         _driver = new AP_VisualOdom_MAV(*this);
         break;
+#endif
+#if AP_VISUALODOM_INTELT265_ENABLED
     case VisualOdom_Type::IntelT265:
     case VisualOdom_Type::VOXL:
         _driver = new AP_VisualOdom_IntelT265(*this);
         break;
+#endif
     }
 }
 
@@ -254,15 +258,15 @@ bool AP_VisualOdom::pre_arm_check(char *failure_msg, uint8_t failure_msg_len) co
         return true;
     }
 
-    // check healthy
-    if (!healthy()) {
-        hal.util->snprintf(failure_msg, failure_msg_len, "not healthy");
-        return false;
-    }
-
     // if no backend we must have failed to create because out of memory
     if (_driver == nullptr) {
         hal.util->snprintf(failure_msg, failure_msg_len, "out of memory");
+        return false;
+    }
+
+    // check healthy
+    if (!healthy()) {
+        hal.util->snprintf(failure_msg, failure_msg_len, "not healthy");
         return false;
     }
 

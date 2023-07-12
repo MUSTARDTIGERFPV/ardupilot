@@ -776,7 +776,7 @@ void AP_GPS_NMEA::parse_versiona_field(uint16_t term_number, const char *term)
     // ::printf("VERSIONA[%u]='%s'\n", term_number, term);
     auto &v = _versiona;
 #pragma GCC diagnostic push
-#if defined(__GNUC__) &&  __GNUC__ >= 10
+#if defined(__GNUC__) &&  __GNUC__ >= 9
 #pragma GCC diagnostic ignored "-Wstringop-truncation"
 #endif
     switch (term_number) {
@@ -859,8 +859,7 @@ void AP_GPS_NMEA::send_config(void)
     switch (get_type()) {
 #if AP_GPS_NMEA_UNICORE_ENABLED
     case AP_GPS::GPS_TYPE_UNICORE_MOVINGBASE_NMEA:
-        port->printf("\r\nMODE MOVINGBASE\r\n" \
-                     "CONFIG HEADING FIXLENGTH\r\n" \
+        port->printf("\r\nCONFIG HEADING FIXLENGTH\r\n" \
                      "CONFIG UNDULATION AUTO\r\n" \
                      "CONFIG\r\n" \
                      "UNIHEADINGA %.3f\r\n",
@@ -870,6 +869,7 @@ void AP_GPS_NMEA::send_config(void)
 
     case AP_GPS::GPS_TYPE_UNICORE_NMEA: {
         port->printf("\r\nAGRICA %.3f\r\n" \
+                     "MODE MOVINGBASE\r\n" \
                      "GNGGA %.3f\r\n" \
                      "GNRMC %.3f\r\n",
                      rate_s, rate_s, rate_s);

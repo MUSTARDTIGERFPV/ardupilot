@@ -34,6 +34,7 @@
 #endif
 #if HAL_ENABLE_SAVE_PERSISTENT_PARAMS
 #include <AP_InertialSensor/AP_InertialSensor.h>
+#include <AP_OpenDroneID/AP_OpenDroneID.h>
 #endif
 #ifndef HAL_BOOTLOADER_BUILD
 #include <AP_Logger/AP_Logger.h>
@@ -48,6 +49,7 @@ extern AP_IOMCU iomcu;
 #if AP_SIGNED_FIRMWARE && !defined(HAL_BOOTLOADER_BUILD)
 #include <AP_CheckFirmware/AP_CheckFirmware.h>
 #endif
+
 
 extern const AP_HAL::HAL& hal;
 
@@ -253,15 +255,20 @@ uint64_t Util::get_hw_rtc() const
     return stm32_get_utc_usec();
 }
 
-#if !defined(HAL_NO_FLASH_SUPPORT) && !defined(HAL_NO_ROMFS_SUPPORT)
-
 #include <GCS_MAVLink/GCS.h>
+
+#if AP_BOOTLOADER_FLASHING_ENABLED
+
 #if HAL_GCS_ENABLED
 #define Debug(fmt, args ...)  do { gcs().send_text(MAV_SEVERITY_INFO, fmt, ## args); } while (0)
 #endif // HAL_GCS_ENABLED
 
 #ifndef Debug
 #define Debug(fmt, args ...)  do { hal.console->printf(fmt, ## args); } while (0)
+#endif
+
+#ifdef HAL_NO_FLASH_SUPPORT
+#error "Bootloader-flashing enabled but no flashing support"
 #endif
 
 Util::FlashBootloader Util::flash_bootloader()
@@ -371,7 +378,7 @@ Util::FlashBootloader Util::flash_bootloader()
     AP_ROMFS::free(fw);
     return FlashBootloader::FAIL;
 }
-#endif // !HAL_NO_FLASH_SUPPORT && !HAL_NO_ROMFS_SUPPORT
+#endif // AP_BOOTLOADER_FLASHING_ENABLED
 
 /*
   display system identifer - board type and serial number
@@ -417,7 +424,7 @@ bool Util::was_watchdog_reset() const
 __RAMFUNC__ void Util::thread_info(ExpandingString &str)
 {
 #if HAL_ENABLE_THREAD_STATISTICS
-    uint64_t cumulative_cycles = ch.kernel_stats.m_crit_isr.cumulative;
+    uint64_t cumulative_cycles = currcore->kernel_stats.m_crit_isr.cumulative;
     for (thread_t *tp = chRegFirstThread(); tp; tp = chRegNextThread(tp)) {
         if (tp->stats.best > 0) { // not run
             cumulative_cycles += (uint64_t)tp->stats.cumulative;
@@ -430,8 +437,8 @@ __RAMFUNC__ void Util::thread_info(ExpandingString &str)
     str.printf("ThreadsV2\nISR           PRI=255 sp=%p STACK=%u/%u LOAD=%4.1f%%\n",
                 &__main_stack_base__,
                 unsigned(stack_free(&__main_stack_base__)),
-                unsigned(isr_stack_size), 100.0f * float(ch.kernel_stats.m_crit_isr.cumulative) / float(cumulative_cycles));
-    ch.kernel_stats.m_crit_isr.cumulative = 0U;
+                unsigned(isr_stack_size), 100.0f * float(currcore->kernel_stats.m_crit_isr.cumulative) / float(cumulative_cycles));
+    currcore->kernel_stats.m_crit_isr.cumulative = 0U;
 #else
     str.printf("ThreadsV2\nISR           PRI=255 sp=%p STACK=%u/%u\n",
                 &__main_stack_base__,
@@ -527,6 +534,12 @@ bool Util::get_persistent_params(ExpandingString &str) const
         ins->get_persistent_params(str);
     }
 #endif
+#if AP_OPENDRONEID_ENABLED
+    const auto *odid = AP_OpenDroneID::get_singleton();
+    if (odid) {
+        odid->get_persistent_params(str);
+    }
+#endif
     if (str.has_failed_allocation() || str.get_length() <= strlen(persistent_header)) {
         // no data
         return false;
@@ -551,6 +564,38 @@ bool Util::load_persistent_params(ExpandingString &str) const
     if (s) {
         str.append(s, (addr+size) - uint32_t(s));
         return !str.has_failed_allocation();
+    }
+    return false;
+}
+
+/*
+  get a persistent variable by name,
+  len is the length of the value buffer, and is updated with the length of the value
+ */
+bool Util::get_persistent_param_by_name(const char *name, char* value, size_t& len) const
+{
+    ExpandingString persistent_params {};
+    if (!load_persistent_params(persistent_params)) {
+        return false;
+    }
+    char *s = persistent_params.get_writeable_string();
+    if (s == nullptr) {
+        return false;
+    }
+    char *saveptr;
+    s += strlen(persistent_header);
+    for (char *p = strtok_r(s, "\n", &saveptr);
+         p; p = strtok_r(nullptr, "\n", &saveptr)) {
+        char *eq = strchr(p, int('='));
+        if (eq) {
+            *eq = 0;
+            if (strcmp(p, name) == 0) {
+                // also get the length of the value
+                strncpy(value, eq+1, len);
+                len = strlen(value);
+                return true;
+            }
+        }
     }
     return false;
 }

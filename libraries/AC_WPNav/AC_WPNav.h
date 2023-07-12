@@ -22,8 +22,9 @@ public:
     /// Constructor
     AC_WPNav(const AP_InertialNav& inav, const AP_AHRS_View& ahrs, AC_PosControl& pos_control, const AC_AttitudeControl& attitude_control);
 
-    /// provide rangefinder altitude
-    void set_rangefinder_alt(bool use, bool healthy, float alt_cm) { _rangefinder_available = use; _rangefinder_healthy = healthy; _rangefinder_alt_cm = alt_cm; }
+    /// provide rangefinder based terrain offset
+    /// terrain offset is the terrain's height above the EKF origin
+    void set_rangefinder_terrain_offset(bool use, bool healthy, float terrain_offset_cm) { _rangefinder_available = use; _rangefinder_healthy = healthy; _rangefinder_terrain_offset_cm = terrain_offset_cm;}
 
     // return true if range finder may be used for terrain following
     bool rangefinder_used() const { return _rangefinder_use; }
@@ -246,6 +247,8 @@ protected:
     AP_Float    _wp_jerk;               // maximum jerk used to generate scurve trajectories in m/s/s/s
     AP_Float    _terrain_margin;        // terrain following altitude margin. vehicle will stop if distance from target altitude is larger than this margin
 
+    // WPNAV_SPEED param change checker
+    bool _check_wp_speed_change;        // if true WPNAV_SPEED param should be checked for changes in-flight
     float _last_wp_speed_cms;  // last recorded WPNAV_SPEED, used for changing speed in-flight
     float _last_wp_speed_up_cms;  // last recorded WPNAV_SPEED_UP, used for changing speed in-flight
     float _last_wp_speed_down_cms;  // last recorded WPNAV_SPEED_DN, used for changing speed in-flight
@@ -280,5 +283,5 @@ protected:
     bool        _rangefinder_available; // true if rangefinder is enabled (user switch can turn this true/false)
     AP_Int8     _rangefinder_use;       // parameter that specifies if the range finder should be used for terrain following commands
     bool        _rangefinder_healthy;   // true if rangefinder distance is healthy (i.e. between min and maximum)
-    float       _rangefinder_alt_cm;    // latest distance from the rangefinder
+    float       _rangefinder_terrain_offset_cm; // latest rangefinder based terrain offset (e.g. terrain's height above EKF origin)
 };

@@ -36,29 +36,36 @@ class ExtractFeatures(object):
         # the substitutions will be upper-cased
         self.features = [
             ('AP_ADVANCEDFAILSAFE_ENABLED', 'AP::advancedfailsafe',),
+            ('AP_BOOTLOADER_FLASHING_ENABLED', 'ChibiOS::Util::flash_bootloader',),
             ('AP_AIRSPEED_ENABLED', 'AP_Airspeed::AP_Airspeed',),
             ('AP_AIRSPEED_{type}_ENABLED', r'AP_Airspeed_(?P<type>.*)::init',),
+
+            ('AC_PRECLAND_ENABLED', 'AC_PrecLand::AC_PrecLand',),
+            ('AC_PRECLAND_ENABLED', 'AC_PrecLand::AC_PrecLand',),
+            ('AC_PRECLAND_{type}_ENABLED', 'AC_PrecLand_(?P<type>.*)::update',),
 
             ('HAL_ADSB_ENABLED', 'AP_ADSB::AP_ADSB',),
             ('HAL_ADSB_{type}_ENABLED', r'AP_ADSB_(?P<type>.*)::update',),
             ('HAL_ADSB_UCP_ENABLED', 'AP_ADSB_uAvionix_UCP::update',),
 
             ('AP_COMPASS_{type}_ENABLED', r'AP_Compass_(?P<type>.*)::read\b',),
+            ('AP_COMPASS_ICM20948_ENABLED', r'AP_Compass_AK09916::probe_ICM20948',),
 
             ('AP_AIS_ENABLED', 'AP_AIS::AP_AIS',),
 
             ('HAL_EFI_ENABLED', 'AP_EFI::AP_EFI',),
-            ('HAL_EFI_{type}_ENABLED', 'AP_EFI_(?P<type>.*)::update',),
+            ('AP_EFI_{type}_ENABLED', 'AP_EFI_(?P<type>.*)::update',),
 
             ('AP_TEMPERATURE_SENSOR_ENABLED', 'AP_TemperatureSensor::AP_TemperatureSensor',),
             ('AP_TEMPERATURE_SENSOR_{type}_ENABLED', 'AP_TemperatureSensor_(?P<type>.*)::update',),
 
-            ('BEACON_ENABLED', 'AP_Beacon::AP_Beacon',),
+            ('AP_BEACON_ENABLED', 'AP_Beacon::AP_Beacon',),
             ('HAL_TORQEEDO_ENABLED', 'AP_Torqeedo::AP_Torqeedo'),
 
             ('HAL_NAVEKF3_AVAILABLE', 'NavEKF3::NavEKF3',),
             ('HAL_NAVEKF2_AVAILABLE', 'NavEKF2::NavEKF2',),
             ('HAL_EXTERNAL_AHRS_ENABLED', r'AP_ExternalAHRS::init\b',),
+            ('AP_EXTERNAL_AHRS_{type}_ENABLED', r'AP_ExternalAHRS_{type}::healthy\b',),
             ('HAL_INS_TEMPERATURE_CAL_ENABLE', 'AP_InertialSensor::TCal::Learn::save_calibration',),
             ('HAL_VISUALODOM_ENABLED', 'AP_VisualOdom::init',),
 
@@ -86,9 +93,7 @@ class ExtractFeatures(object):
             ('HAL_WITH_MSP_DISPLAYPORT', r'AP_OSD_MSP_DisplayPort::init\b',),
 
 
-            ('AP_BATTMON_{type}_ENABLE', r'AP_BattMonitor_(?P<type>.*)::init\b',),
-            ('HAL_BATTMON_{type}_ENABLED', r'AP_BattMonitor_(?P<type>.*)::init\b',),
-            ('AP_BATTMON_{type}_ENABLED', r'AP_BattMonitor_(?P<type>.*)::init\b',),
+            ('AP_BATTERY_{type}_ENABLED', r'AP_BattMonitor_(?P<type>.*)::init\b',),
 
             ('HAL_MOUNT_ENABLED', 'AP_Mount::AP_Mount',),
             ('HAL_MOUNT_{type}_ENABLED', r'AP_Mount_(?P<type>.*)::update\b',),
@@ -110,22 +115,27 @@ class ExtractFeatures(object):
             ('MODE_GUIDED_NOGPS_ENABLED', r'ModeGuidedNoGPS::init',),
 
             ('AP_CAMERA_ENABLED', 'AP_Camera::var_info',),
+            ('AP_CAMERA_{type}_ENABLED', 'AP_Camera_(?P<type>.*)::trigger_pic',),
             ('HAL_RUNCAM_ENABLED', 'AP_RunCam::AP_RunCam',),
+
+            ('HAL_PROXIMITY_ENABLED', 'AP_Proximity::AP_Proximity',),
+            ('AP_PROXIMITY_{type}_ENABLED', 'AP_Proximity_(?P<type>.*)::update',),
+            ('AP_PROXIMITY_CYGBOT_ENABLED', 'AP_Proximity_Cygbot_D1::update',),
+            ('AP_PROXIMITY_LIGHTWARE_{type}_ENABLED', 'AP_Proximity_LightWare(?P<type>.*)::update',),
 
             ('HAL_PARACHUTE_ENABLED', 'AP_Parachute::update',),
             ('AP_FENCE_ENABLED', r'AC_Fence::check\b',),
-            ('HAL_PROXIMITY_ENABLED', 'AP_Proximity::AP_Proximity',),
             ('AC_AVOID_ENABLED', 'AC_Avoid::AC_Avoid',),
             ('AC_OAPATHPLANNER_ENABLED', 'AP_OAPathPlanner::AP_OAPathPlanner',),
 
             ('AP_ICENGINE_ENABLED', 'AP_ICEngine::AP_ICEngine',),
             ('HAL_EFI_ENABLED', 'AP_RPM_EFI::AP_RPM_EFI',),
-            ('HAL_EFI_NWPWU_ENABLED', r'AP_EFI_NWPMU::update\b',),
-            ('HAL_EFI_CURRAWONG_ECU_ENABLED', r'AP_EFI_Currawong_ECU::update\b',),
+            ('AP_EFI_NWPWU_ENABLED', r'AP_EFI_NWPMU::update\b',),
+            ('AP_EFI_CURRAWONG_ECU_ENABLED', r'AP_EFI_Currawong_ECU::update\b',),
             ('HAL_GENERATOR_ENABLED', 'AP_Generator::AP_Generator',),
             ('AP_GENERATOR_{type}_ENABLED', r'AP_Generator_(?P<type>.*)::update',),
 
-            ('OSD_ENABLED', 'AP_OSD::AP_OSD',),
+            ('OSD_ENABLED', 'AP_OSD::update_osd',),
             ('HAL_PLUSCODE_ENABLE', 'AP_OSD_Screen::draw_pluscode',),
             ('OSD_PARAM_ENABLED', 'AP_OSD_ParamScreen::AP_OSD_ParamScreen',),
             ('HAL_OSD_SIDEBAR_ENABLE', 'AP_OSD_Screen::draw_sidebars',),
@@ -142,18 +152,26 @@ class ExtractFeatures(object):
             ('AP_GRIPPER_ENABLED', r'AP_Gripper::init\b',),
             ('HAL_SPRAYER_ENABLED', 'AC_Sprayer::AC_Sprayer',),
             ('AP_LANDINGGEAR_ENABLED', r'AP_LandingGear::init\b',),
-            ('WINCH_ENABLED', 'AP_Winch::AP_Winch',),
+            ('AP_WINCH_ENABLED', 'AP_Winch::AP_Winch',),
+            ('AP_RELAY_ENABLED', 'AP_Relay::init',),
+            ('AP_SERVORELAYEVENTS_ENABLED', 'AP_ServoRelayEvents::update_events',),
+
+            ('AP_RCPROTOCOL_ENABLED', r'AP_RCProtocol::init\b',),
+            ('AP_RCPROTOCOL_{type}_ENABLED', r'AP_RCProtocol_(?P<type>.*)::_process_byte\b',),
+            ('AP_RCPROTOCOL_{type}_ENABLED', r'AP_RCProtocol_(?P<type>.*)::_process_pulse\b',),
 
             ('AP_VOLZ_ENABLED', r'AP_Volz_Protocol::init\b',),
-            ('AP_DRONECAN_VOLZ_FEEDBACK_ENABLED', r'AP_UAVCAN::handle_actuator_status_Volz\b',),
+            ('AP_DRONECAN_VOLZ_FEEDBACK_ENABLED', r'AP_DroneCAN::handle_actuator_status_Volz\b',),
             ('AP_ROBOTISSERVO_ENABLED', r'AP_RobotisServo::init\b',),
             ('AP_FETTEC_ONEWIRE_ENABLED', r'AP_FETtecOneWire::init\b',),
+            ('AP_SBUSOUTPUT_ENABLED', 'AP_SBusOut::sbus_format_frame',),
+            ('AP_KDECAN_ENABLED', r'AP_KDECAN::update\b',),
 
             ('AP_RPM_ENABLED', 'AP_RPM::AP_RPM',),
             ('AP_RPM_{type}_ENABLED', r'AP_RPM_(?P<type>.*)::update',),
 
             ('GPS_MOVING_BASELINE', r'AP_GPS_Backend::calculate_moving_base_yaw\b',),
-            ('AP_DRONECAN_SEND_GPS', r'AP_GPS_UAVCAN::instance_exists\b',),
+            ('AP_DRONECAN_SEND_GPS', r'AP_GPS_DroneCAN::instance_exists\b',),
 
             ('HAL_WITH_DSP', r'AP_HAL::DSP::find_peaks\b',),
             ('HAL_GYROFFT_ENABLED', r'AP_GyroFFT::AP_GyroFFT\b',),
@@ -163,9 +181,24 @@ class ExtractFeatures(object):
 
             ('HAL_PICCOLO_CAN_ENABLE', r'AP_PiccoloCAN::update',),
             ('EK3_FEATURE_EXTERNAL_NAV', r'NavEKF3::writeExtNavVelData'),
+            ('EK3_FEATURE_DRAG_FUSION', r'NavEKF3_core::FuseDragForces'),
 
             ('AP_RC_CHANNEL_AUX_FUNCTION_STRINGS_ENABLED', r'RC_Channel::lookuptable',),
+            ('AP_SCRIPTING_ENABLED', r'AP_Scripting::init',),
 
+            ('AP_NOTIFY_TONEALARM_ENABLED', r'AP_ToneAlarm::init'),
+            ('AP_NOTIFY_MAVLINK_PLAY_TUNE_SUPPORT_ENABLED', r'AP_Notify::handle_play_tune'),
+            ('AP_NOTIFY_MAVLINK_LED_CONTROL_SUPPORT_ENABLED', r'AP_Notify::handle_led_control'),
+            ('AP_NOTIFY_NCP5623_ENABLED', r'NCP5623::write'),
+            ('AP_NOTIFY_PROFILED_ENABLED', r'ProfiLED::init_ports'),
+            ('AP_NOTIFY_PROFILED_SPI_ENABLED', r'ProfiLED_SPI::rgb_set_id'),
+            ('AP_NOTIFY_NEOPIXEL_ENABLED', r'NeoPixel::init_ports'),
+            ('AP_FILESYSTEM_FORMAT_ENABLED', r'AP_Filesystem::format'),
+
+            ('AP_FILESYSTEM_{type}_ENABLED', r'AP_Filesystem_(?P<type>.*)::open'),
+
+            ('AP_INERTIALSENSOR_KILL_IMU_ENABLED', r'AP_InertialSensor::kill_imu'),
+            ('AP_CRASHDUMP_ENABLED', 'CrashCatcher_DumpMemory'),
         ]
 
     def progress(self, msg):
@@ -178,6 +211,7 @@ class ExtractFeatures(object):
         # a list of problematic defines we don't have fixes for ATM:
         whitelist = frozenset([
             'HAL_PERIPH_SUPPORT_LONG_CAN_PRINTF',  # this define changes single method body, hard to detect?
+            'AP_PLANE_BLACKBOX_LOGGING', # no visible signature
         ])
         for option in build_options.BUILD_OPTIONS:
             if option.define in whitelist:
@@ -305,9 +339,8 @@ class ExtractFeatures(object):
 
         return ret
 
-    def create_string(self):
-
-        ret = ""
+    def extract(self):
+        '''returns two sets - compiled_in and not_compiled_in'''
 
         build_options_defines = set([x.define for x in build_options.BUILD_OPTIONS])
 
@@ -336,10 +369,18 @@ class ExtractFeatures(object):
                     continue
                 compiled_in_feature_defines.append(some_define)
                 remaining_build_options_defines.discard(some_define)
+        return (compiled_in_feature_defines, remaining_build_options_defines)
+
+    def create_string(self):
+        '''returns a string with compiled in and not compiled-in features'''
+
+        (compiled_in_feature_defines, not_compiled_in_feature_defines) = self.extract()
+
+        ret = ""
 
         for compiled_in_feature_define in sorted(compiled_in_feature_defines):
             ret += compiled_in_feature_define + "\n"
-        for remaining in sorted(remaining_build_options_defines):
+        for remaining in sorted(not_compiled_in_feature_defines):
             ret += "!" + remaining + "\n"
 
         return ret

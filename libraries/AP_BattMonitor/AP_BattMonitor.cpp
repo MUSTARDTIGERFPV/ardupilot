@@ -23,8 +23,8 @@
 
 #include <AP_HAL/AP_HAL.h>
 
-#if HAL_ENABLE_LIBUAVCAN_DRIVERS
-#include "AP_BattMonitor_UAVCAN.h"
+#if HAL_ENABLE_DRONECAN_DRIVERS
+#include "AP_BattMonitor_DroneCAN.h"
 #endif
 
 #include <AP_Vehicle/AP_Vehicle_Type.h>
@@ -52,11 +52,13 @@ const AP_Param::GroupInfo AP_BattMonitor::var_info[] = {
     // @Group: _
     // @Path: AP_BattMonitor_Sum.cpp
     // @Group: _
-    // @Path: AP_BattMonitor_UAVCAN.cpp
+    // @Path: AP_BattMonitor_DroneCAN.cpp
     // @Group: _
     // @Path: AP_BattMonitor_FuelLevel_Analog.cpp
     // @Group: _
     // @Path: AP_BattMonitor_Synthetic_Current.cpp
+    // @Group: _
+    // @Path: AP_BattMonitor_INA2xx.cpp
     AP_SUBGROUPVARPTR(drivers[0], "_", 41, AP_BattMonitor, backend_var_info[0]),
 
 #if AP_BATT_MONITOR_MAX_INSTANCES > 1
@@ -71,11 +73,13 @@ const AP_Param::GroupInfo AP_BattMonitor::var_info[] = {
     // @Group: 2_
     // @Path: AP_BattMonitor_Sum.cpp
     // @Group: 2_
-    // @Path: AP_BattMonitor_UAVCAN.cpp
+    // @Path: AP_BattMonitor_DroneCAN.cpp
     // @Group: 2_
     // @Path: AP_BattMonitor_FuelLevel_Analog.cpp
     // @Group: 2_
     // @Path: AP_BattMonitor_Synthetic_Current.cpp
+    // @Group: 2_
+    // @Path: AP_BattMonitor_INA2xx.cpp
     AP_SUBGROUPVARPTR(drivers[1], "2_", 42, AP_BattMonitor, backend_var_info[1]),
 #endif
 
@@ -91,11 +95,13 @@ const AP_Param::GroupInfo AP_BattMonitor::var_info[] = {
     // @Group: 3_
     // @Path: AP_BattMonitor_Sum.cpp
     // @Group: 3_
-    // @Path: AP_BattMonitor_UAVCAN.cpp
+    // @Path: AP_BattMonitor_DroneCAN.cpp
     // @Group: 3_
     // @Path: AP_BattMonitor_FuelLevel_Analog.cpp
     // @Group: 3_
     // @Path: AP_BattMonitor_Synthetic_Current.cpp
+    // @Group: 3_
+    // @Path: AP_BattMonitor_INA2xx.cpp
     AP_SUBGROUPVARPTR(drivers[2], "3_", 43, AP_BattMonitor, backend_var_info[2]),
 #endif
 
@@ -111,11 +117,13 @@ const AP_Param::GroupInfo AP_BattMonitor::var_info[] = {
     // @Group: 4_
     // @Path: AP_BattMonitor_Sum.cpp
     // @Group: 4_
-    // @Path: AP_BattMonitor_UAVCAN.cpp
+    // @Path: AP_BattMonitor_DroneCAN.cpp
     // @Group: 4_
     // @Path: AP_BattMonitor_FuelLevel_Analog.cpp
     // @Group: 4_
     // @Path: AP_BattMonitor_Synthetic_Current.cpp
+    // @Group: 4_
+    // @Path: AP_BattMonitor_INA2xx.cpp
     AP_SUBGROUPVARPTR(drivers[3], "4_", 44, AP_BattMonitor, backend_var_info[3]),
 #endif
 
@@ -131,11 +139,13 @@ const AP_Param::GroupInfo AP_BattMonitor::var_info[] = {
     // @Group: 5_
     // @Path: AP_BattMonitor_Sum.cpp
     // @Group: 5_
-    // @Path: AP_BattMonitor_UAVCAN.cpp
+    // @Path: AP_BattMonitor_DroneCAN.cpp
     // @Group: 5_
     // @Path: AP_BattMonitor_FuelLevel_Analog.cpp
     // @Group: 5_
     // @Path: AP_BattMonitor_Synthetic_Current.cpp
+    // @Group: 5_
+    // @Path: AP_BattMonitor_INA2xx.cpp
     AP_SUBGROUPVARPTR(drivers[4], "5_", 45, AP_BattMonitor, backend_var_info[4]),
 #endif
 
@@ -151,11 +161,13 @@ const AP_Param::GroupInfo AP_BattMonitor::var_info[] = {
     // @Group: 6_
     // @Path: AP_BattMonitor_Sum.cpp
     // @Group: 6_
-    // @Path: AP_BattMonitor_UAVCAN.cpp
+    // @Path: AP_BattMonitor_DroneCAN.cpp
     // @Group: 6_
     // @Path: AP_BattMonitor_FuelLevel_Analog.cpp
     // @Group: 6_
     // @Path: AP_BattMonitor_Synthetic_Current.cpp
+    // @Group: 6_
+    // @Path: AP_BattMonitor_INA2xx.cpp
     AP_SUBGROUPVARPTR(drivers[5], "6_", 46, AP_BattMonitor, backend_var_info[5]),
 #endif
 
@@ -171,11 +183,13 @@ const AP_Param::GroupInfo AP_BattMonitor::var_info[] = {
     // @Group: 7_
     // @Path: AP_BattMonitor_Sum.cpp
     // @Group: 7_
-    // @Path: AP_BattMonitor_UAVCAN.cpp
+    // @Path: AP_BattMonitor_DroneCAN.cpp
     // @Group: 7_
     // @Path: AP_BattMonitor_FuelLevel_Analog.cpp
     // @Group: 7_
     // @Path: AP_BattMonitor_Synthetic_Current.cpp
+    // @Group: 7_
+    // @Path: AP_BattMonitor_INA2xx.cpp
     AP_SUBGROUPVARPTR(drivers[6], "7_", 47, AP_BattMonitor, backend_var_info[6]),
 #endif
 
@@ -191,11 +205,13 @@ const AP_Param::GroupInfo AP_BattMonitor::var_info[] = {
     // @Group: 8_
     // @Path: AP_BattMonitor_Sum.cpp
     // @Group: 8_
-    // @Path: AP_BattMonitor_UAVCAN.cpp
+    // @Path: AP_BattMonitor_DroneCAN.cpp
     // @Group: 8_
     // @Path: AP_BattMonitor_FuelLevel_Analog.cpp
     // @Group: 8_
     // @Path: AP_BattMonitor_Synthetic_Current.cpp
+    // @Group: 8_
+    // @Path: AP_BattMonitor_INA2xx.cpp
     AP_SUBGROUPVARPTR(drivers[7], "8_", 48, AP_BattMonitor, backend_var_info[7]),
 #endif
 
@@ -211,11 +227,13 @@ const AP_Param::GroupInfo AP_BattMonitor::var_info[] = {
     // @Group: 9_
     // @Path: AP_BattMonitor_Sum.cpp
     // @Group: 9_
-    // @Path: AP_BattMonitor_UAVCAN.cpp
+    // @Path: AP_BattMonitor_DroneCAN.cpp
     // @Group: 9_
     // @Path: AP_BattMonitor_FuelLevel_Analog.cpp
     // @Group: 9_
     // @Path: AP_BattMonitor_Synthetic_Current.cpp
+    // @Group: 9_
+    // @Path: AP_BattMonitor_INA2xx.cpp
     AP_SUBGROUPVARPTR(drivers[8], "9_", 49, AP_BattMonitor, backend_var_info[8]),
 #endif
 
@@ -255,75 +273,91 @@ AP_BattMonitor::init()
 #ifdef HAL_BATT_MONITOR_DEFAULT
     _params[0]._type.set_default(int8_t(HAL_BATT_MONITOR_DEFAULT));
 #endif
+#ifdef HAL_BATT2_MONITOR_DEFAULT
+    _params[1]._type.set_default(int8_t(HAL_BATT2_MONITOR_DEFAULT));
+#endif
 
     // create each instance
     for (uint8_t instance=0; instance<AP_BATT_MONITOR_MAX_INSTANCES; instance++) {
         // clear out the cell voltages
         memset(&state[instance].cell_voltages, 0xFF, sizeof(cells));
+        state[instance].instance = instance;
 
         switch (get_type(instance)) {
+#if AP_BATTERY_ANALOG_ENABLED
             case Type::ANALOG_VOLTAGE_ONLY:
             case Type::ANALOG_VOLTAGE_AND_CURRENT:
                 drivers[instance] = new AP_BattMonitor_Analog(*this, state[instance], _params[instance]);
                 break;
-#if AP_BATTMON_SMBUS_SOLO_ENABLED
+#endif
+#if AP_BATTERY_SMBUS_SOLO_ENABLED
             case Type::SOLO:
                 drivers[instance] = new AP_BattMonitor_SMBus_Solo(*this, state[instance], _params[instance]);
                 break;
 #endif
-#if AP_BATTMON_SMBUS_ENABLE
+#if AP_BATTERY_SMBUS_GENERIC_ENABLED
             case Type::SMBus_Generic:
                 drivers[instance] = new AP_BattMonitor_SMBus_Generic(*this, state[instance], _params[instance]);
                 break;
+#endif
+#if AP_BATTERY_SMBUS_SUI_ENABLED
             case Type::SUI3:
                 drivers[instance] = new AP_BattMonitor_SMBus_SUI(*this, state[instance], _params[instance], 3);
                 break;
             case Type::SUI6:
                 drivers[instance] = new AP_BattMonitor_SMBus_SUI(*this, state[instance], _params[instance], 6);
                 break;
+#endif
+#if AP_BATTERY_SMBUS_MAXELL_ENABLED
             case Type::MAXELL:
                 drivers[instance] = new AP_BattMonitor_SMBus_Maxell(*this, state[instance], _params[instance]);
                 break;
+#endif
+#if AP_BATTERY_SMBUS_ROTOYE_ENABLED
             case Type::Rotoye:
                 drivers[instance] = new AP_BattMonitor_SMBus_Rotoye(*this, state[instance], _params[instance]);
                 break;
+#endif
+#if AP_BATTERY_SMBUS_NEODESIGN_ENABLED
             case Type::NeoDesign:
                 drivers[instance] = new AP_BattMonitor_SMBus_NeoDesign(*this, state[instance], _params[instance]);
                 break;
-#endif // AP_BATTMON_SMBUS_ENABLE
+#endif
+#if AP_BATTERY_BEBOP_ENABLED
             case Type::BEBOP:
-#if CONFIG_HAL_BOARD_SUBTYPE == HAL_BOARD_SUBTYPE_LINUX_BEBOP || CONFIG_HAL_BOARD_SUBTYPE == HAL_BOARD_SUBTYPE_LINUX_DISCO
                 drivers[instance] = new AP_BattMonitor_Bebop(*this, state[instance], _params[instance]);
-#endif
                 break;
+#endif
+#if AP_BATTERY_UAVCAN_BATTERYINFO_ENABLED
             case Type::UAVCAN_BatteryInfo:
-#if HAL_ENABLE_LIBUAVCAN_DRIVERS
-                drivers[instance] = new AP_BattMonitor_UAVCAN(*this, state[instance], AP_BattMonitor_UAVCAN::UAVCAN_BATTERY_INFO, _params[instance]);
-#endif
+                drivers[instance] = new AP_BattMonitor_DroneCAN(*this, state[instance], AP_BattMonitor_DroneCAN::UAVCAN_BATTERY_INFO, _params[instance]);
                 break;
+#endif
+#if AP_BATTERY_ESC_ENABLED
             case Type::BLHeliESC:
-#if HAL_WITH_ESC_TELEM && !defined(HAL_BUILD_AP_PERIPH)
                 drivers[instance] = new AP_BattMonitor_ESC(*this, state[instance], _params[instance]);
-#endif
                 break;
+#endif
+#if AP_BATTERY_SUM_ENABLED
             case Type::Sum:
                 drivers[instance] = new AP_BattMonitor_Sum(*this, state[instance], _params[instance], instance);
                 break;
-#if AP_BATTMON_FUELFLOW_ENABLE
+#endif
+#if AP_BATTERY_FUELFLOW_ENABLED
             case Type::FuelFlow:
                 drivers[instance] = new AP_BattMonitor_FuelFlow(*this, state[instance], _params[instance]);
                 break;
-#endif // AP_BATTMON_FUELFLOW_ENABLE
-#if AP_BATTMON_FUELLEVEL_PWM_ENABLE
+#endif // AP_BATTERY_FUELFLOW_ENABLED
+#if AP_BATTERY_FUELLEVEL_PWM_ENABLED
             case Type::FuelLevel_PWM:
                 drivers[instance] = new AP_BattMonitor_FuelLevel_PWM(*this, state[instance], _params[instance]);
                 break;
-#endif // AP_BATTMON_FUELLEVEL_PWM_ENABLE
-#if AP_BATTMON_FUELLEVEL_ANALOG_ENABLE
+#endif // AP_BATTERY_FUELLEVEL_PWM_ENABLED
+#if AP_BATTERY_FUELLEVEL_ANALOG_ENABLED
             case Type::FuelLevel_Analog:
                 drivers[instance] = new AP_BattMonitor_FuelLevel_Analog(*this, state[instance], _params[instance]);
                 break;
-#endif // AP_BATTMON_FUELLEVEL_ANALOG_ENABLE
+#endif // AP_BATTERY_FUELLEVEL_ANALOG_ENABLED
 #if HAL_GENERATOR_ENABLED
             case Type::GENERATOR_ELEC:
                 drivers[instance] = new AP_BattMonitor_Generator_Elec(*this, state[instance], _params[instance]);
@@ -332,12 +366,12 @@ AP_BattMonitor::init()
                 drivers[instance] = new AP_BattMonitor_Generator_FuelLevel(*this, state[instance], _params[instance]);
                 break;
 #endif // HAL_GENERATOR_ENABLED
-#if HAL_BATTMON_INA2XX_ENABLED
+#if AP_BATTERY_INA2XX_ENABLED
             case Type::INA2XX:
                 drivers[instance] = new AP_BattMonitor_INA2XX(*this, state[instance], _params[instance]);
                 break;
 #endif
-#if HAL_BATTMON_LTC2946_ENABLED
+#if AP_BATTERY_LTC2946_ENABLED
             case Type::LTC2946:
                 drivers[instance] = new AP_BattMonitor_LTC2946(*this, state[instance], _params[instance]);
                 break;
@@ -347,21 +381,21 @@ AP_BattMonitor::init()
                 drivers[instance] = new AP_BattMonitor_Torqeedo(*this, state[instance], _params[instance]);
                 break;
 #endif
-#if AP_BATTMON_SYNTHETIC_CURRENT_ENABLED
+#if AP_BATTERY_SYNTHETIC_CURRENT_ENABLED
             case Type::Analog_Volt_Synthetic_Current:
                 drivers[instance] = new AP_BattMonitor_Synthetic_Current(*this, state[instance], _params[instance]);
                 break;
 #endif
-#if HAL_BATTMON_INA239_ENABLED
+#if AP_BATTERY_INA239_ENABLED
             case Type::INA239_SPI:
                 drivers[instance] = new AP_BattMonitor_INA239(*this, state[instance], _params[instance]);
                 break;
 #endif
-#if HAL_EFI_ENABLED
+#if AP_BATTERY_EFI_ENABLED
             case Type::EFI:
                 drivers[instance] = new AP_BattMonitor_EFI(*this, state[instance], _params[instance]);
                 break;
-#endif // HAL_EFI_ENABLED
+#endif // AP_BATTERY_EFI_ENABLED
             case Type::NONE:
             default:
                 break;
@@ -833,6 +867,24 @@ uint32_t AP_BattMonitor::get_mavlink_fault_bitmask(const uint8_t instance) const
         return 0;
     }
     return drivers[instance]->get_mavlink_fault_bitmask();
+}
+
+// Enable/Disable (Turn on/off) MPPT power to all backends who are MPPTs
+void AP_BattMonitor::MPPT_set_powered_state_to_all(const bool power_on)
+{
+    for (uint8_t i=0; i < _num_instances; i++) {
+        MPPT_set_powered_state(i, power_on);
+    }
+}
+
+// Enable/Disable (Turn on/off) MPPT power. When disabled, the MPPT does not
+// supply energy to the system regardless if it's capable to or not. When enabled
+// it will supply energy if available.
+void AP_BattMonitor::MPPT_set_powered_state(const uint8_t instance, const bool power_on)
+{
+    if (instance < _num_instances) {
+        drivers[instance]->mppt_set_powered_state(power_on);
+    }
 }
 
 /*

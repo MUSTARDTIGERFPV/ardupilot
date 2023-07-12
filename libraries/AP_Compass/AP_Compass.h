@@ -36,10 +36,14 @@
 #endif
 
 #ifndef COMPASS_CAL_ENABLED
-#define COMPASS_CAL_ENABLED !defined(HAL_BUILD_AP_PERIPH)
+#define COMPASS_CAL_ENABLED 1
 #endif
-#define COMPASS_MOT_ENABLED !defined(HAL_BUILD_AP_PERIPH)
-#define COMPASS_LEARN_ENABLED !defined(HAL_BUILD_AP_PERIPH)
+#ifndef COMPASS_MOT_ENABLED
+#define COMPASS_MOT_ENABLED 1
+#endif
+#ifndef COMPASS_LEARN_ENABLED
+#define COMPASS_LEARN_ENABLED 1
+#endif
 
 // define default compass calibration fitness and consistency checks
 #define AP_COMPASS_CALIBRATION_FITNESS_DEFAULT 16.0f
@@ -201,7 +205,7 @@ public:
     bool consistent() const;
 
     /// Return the health of a compass
-    bool healthy(uint8_t i) const { return _get_state(Priority(i)).healthy; }
+    bool healthy(uint8_t i) const;
     bool healthy(void) const { return healthy(_first_usable); }
     uint8_t get_healthy_mask() const;
 
@@ -240,6 +244,11 @@ public:
     // set overall board orientation
     void set_board_orientation(enum Rotation orientation) {
         _board_orientation = orientation;
+    }
+
+    // get overall board orientation
+    enum Rotation get_board_orientation(void) const {
+        return _board_orientation;
     }
 
     /// Set the motor compensation type
@@ -444,7 +453,7 @@ private:
 #if AP_COMPASS_MMC3416_ENABLED
         DRIVER_MMC3416  =9,
 #endif
-#if AP_COMPASS_UAVCAN_ENABLED
+#if AP_COMPASS_DRONECAN_ENABLED
         DRIVER_UAVCAN   =11,
 #endif
 #if AP_COMPASS_QMC5883L_ENABLED
@@ -598,7 +607,9 @@ private:
     // bitmask of options
     enum class Option : uint16_t {
         CAL_REQUIRE_GPS = (1U<<0),
+        ALLOW_DRONECAN_AUTO_REPLACEMENT = (1U<<1),
     };
+    bool option_set(Option opt) const { return (_options.get() & uint16_t(opt)) != 0; }
     AP_Int16 _options;
 
 #if COMPASS_CAL_ENABLED
