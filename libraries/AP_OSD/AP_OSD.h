@@ -231,6 +231,7 @@ private:
     AP_OSD_Setting hgt_abvterr{false, 23, 7};
     AP_OSD_Setting fence{false, 14, 9};
     AP_OSD_Setting rngf;
+    AP_OSD_Setting radar;
 #if HAL_PLUSCODE_ENABLE
     AP_OSD_Setting pluscode;
 #endif
@@ -281,6 +282,7 @@ private:
     void draw_gspeed(uint8_t x, uint8_t y);
     void draw_horizon(uint8_t x, uint8_t y);
     void draw_home(uint8_t x, uint8_t y);
+    void draw_radar(uint8_t x, uint8_t y);
     void draw_throttle(uint8_t x, uint8_t y);
     void draw_heading(uint8_t x, uint8_t y);
 #if AP_RPM_ENABLED
@@ -302,6 +304,7 @@ private:
     void draw_speed(uint8_t x, uint8_t y, float angle_rad, float magnitude);
     void draw_distance(uint8_t x, uint8_t y, float distance);
     char get_arrow_font_index (int32_t angle_cd);
+    void draw_vdistance(uint8_t x, uint8_t y, float distance);
 #if HAL_WITH_ESC_TELEM
     void draw_esc_temp(uint8_t x, uint8_t y);
     void draw_esc_rpm(uint8_t x, uint8_t y);
