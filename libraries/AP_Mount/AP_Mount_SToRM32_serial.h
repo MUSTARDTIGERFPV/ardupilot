@@ -5,10 +5,6 @@
 
 #include "AP_Mount_Backend.h"
 
-#ifndef HAL_MOUNT_STORM32SERIAL_ENABLED
-#define HAL_MOUNT_STORM32SERIAL_ENABLED HAL_MOUNT_ENABLED
-#endif
-
 #if HAL_MOUNT_STORM32SERIAL_ENABLED
 
 #include <AP_HAL/AP_HAL.h>
@@ -22,7 +18,7 @@ class AP_Mount_SToRM32_serial : public AP_Mount_Backend
 
 public:
     // Constructor
-    AP_Mount_SToRM32_serial(AP_Mount &frontend, AP_Mount_Params &params, uint8_t instance);
+    using AP_Mount_Backend::AP_Mount_Backend;
 
     // init - performs any required initialisation for this instance
     void init() override;
@@ -134,12 +130,11 @@ private:
     AP_HAL::UARTDriver *_port;
 
     bool _initialised;              // true once the driver has been initialised
-    MountTarget _angle_rad;         // latest angle target
     uint32_t _last_send;            // system time of last do_mount_control sent to gimbal
 
     uint8_t _reply_length;
     uint8_t _reply_counter;
-    ReplyType _reply_type;
+    ReplyType _reply_type = ReplyType_UNKNOWN;
 
 
     union PACKED SToRM32_reply {

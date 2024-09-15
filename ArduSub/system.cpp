@@ -19,6 +19,11 @@ void Sub::init_ardupilot()
     can_mgr.init();
 #endif
 
+#if STATS_ENABLED == ENABLED
+    // initialise stats module
+    g2.stats.init();
+#endif
+
     // init cargo gripper
 #if AP_GRIPPER_ENABLED
     g2.gripper.init();
@@ -57,7 +62,7 @@ void Sub::init_ardupilot()
     // setup telem slots with serial ports
     gcs().setup_uarts();
 
-#if LOGGING_ENABLED == ENABLED
+#if HAL_LOGGING_ENABLED
     log_init();
 #endif
 
@@ -70,7 +75,9 @@ void Sub::init_ardupilot()
     init_rc_out();              // sets up motors and output to escs
     init_joystick();            // joystick initialization
 
+#if AP_RELAY_ENABLED
     relay.init();
+#endif
 
     /*
      *  setup the 'main loop is dead' check. Note that this relies on
@@ -97,7 +104,7 @@ void Sub::init_ardupilot()
 #if HAL_MOUNT_ENABLED
     // initialise camera mount
     camera_mount.init();
-    // This step ncessary so the servo is properly initialized
+    // This step is necessary so that the servo is properly initialized
     camera_mount.set_angle_target(0, 0, 0, false);
     // for some reason the call to set_angle_targets changes the mode to mavlink targeting!
     camera_mount.set_mode(MAV_MOUNT_MODE_RC_TARGETING);
@@ -154,7 +161,7 @@ void Sub::init_ardupilot()
     mission.init();
 
     // initialise AP_Logger library
-#if LOGGING_ENABLED == ENABLED
+#if HAL_LOGGING_ENABLED
     logger.setVehicle_Startup_Writer(FUNCTOR_BIND(&sub, &Sub::Log_Write_Vehicle_Startup_Messages, void));
 #endif
 
@@ -163,11 +170,6 @@ void Sub::init_ardupilot()
 #if AP_SCRIPTING_ENABLED
     g2.scripting.init();
 #endif // AP_SCRIPTING_ENABLED
-
-    // we don't want writes to the serial port to cause us to pause
-    // mid-flight, so set the serial ports non-blocking once we are
-    // ready to fly
-    serial_manager.set_blocking_writes_all(false);
 
     // enable CPU failsafe
     mainloop_failsafe_enable();
@@ -262,18 +264,16 @@ bool Sub::optflow_position_ok()
     return (filt_status.flags.horiz_pos_rel && !filt_status.flags.const_pos_mode);
 }
 
+#if HAL_LOGGING_ENABLED
 /*
   should we log a message type now?
  */
 bool Sub::should_log(uint32_t mask)
 {
-#if LOGGING_ENABLED == ENABLED
     ap.logging_started = logger.logging_started();
     return logger.should_log(mask);
-#else
-    return false;
-#endif
 }
+#endif
 
 #include <AP_AdvancedFailsafe/AP_AdvancedFailsafe.h>
 #include <AP_Avoidance/AP_Avoidance.h>

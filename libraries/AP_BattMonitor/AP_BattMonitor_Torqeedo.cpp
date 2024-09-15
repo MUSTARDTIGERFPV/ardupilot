@@ -14,10 +14,13 @@
  */
 
 
-#include <AP_HAL/AP_HAL.h>
+#include "AP_BattMonitor_config.h"
+
+#if AP_BATTERY_TORQEEDO_ENABLED
+
 #include "AP_BattMonitor_Torqeedo.h"
 
-#if HAL_TORQEEDO_ENABLED
+#include <AP_HAL/AP_HAL.h>
 
 #define AP_BATTMON_TORQEEDO_TIMEOUT_US 5000000
 
@@ -46,7 +49,7 @@ void AP_BattMonitor_Torqeedo::read(void)
         const uint32_t tnow_us = AP_HAL::micros();
         const uint32_t diff_us = tnow_us - _state.last_time_micros;
         if (diff_us < AP_BATTMON_TORQEEDO_TIMEOUT_US) {
-            _state.consumed_mah += _state.current_amps * diff_us / 1000000.0 / 3600.0 * 1000.0;
+            _state.consumed_mah += _state.current_amps * diff_us * 1e-6f / 3600.0 * 1000.0;
         }
         _state.last_time_micros = tnow_us;
         _state.healthy = true;
@@ -73,4 +76,4 @@ bool AP_BattMonitor_Torqeedo::capacity_remaining_pct(uint8_t &percentage) const
     return have_info;
 }
 
-#endif // HAL_TORQEEDO_ENABLED
+#endif // AP_BATTERY_TORQEEDO_ENABLED

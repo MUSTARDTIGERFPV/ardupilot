@@ -29,7 +29,7 @@ const AP_Param::GroupInfo AC_Circle::var_info[] = {
     // @Param: OPTIONS
     // @DisplayName: Circle options
     // @Description: 0:Enable or disable using the pitch/roll stick control circle mode's radius and rate
-    // @Bitmask: 0:manual control, 1:face direction of travel, 2:Start at center rather than on perimeter
+    // @Bitmask: 0:manual control, 1:face direction of travel, 2:Start at center rather than on perimeter, 3:Make Mount ROI the center of the circle
     // @User: Standard
     AP_GROUPINFO("OPTIONS", 2, AC_Circle, _options, 1),
 
@@ -121,7 +121,7 @@ void AC_Circle::set_center(const Location& center)
         } else {
             // failed to convert location so set to current position and log error
             set_center(_inav.get_position_neu_cm(), false);
-            AP::logger().Write_Error(LogErrorSubsystem::NAVIGATION, LogErrorCode::FAILED_CIRCLE_INIT);
+            LOGGER_WRITE_ERROR(LogErrorSubsystem::NAVIGATION, LogErrorCode::FAILED_CIRCLE_INIT);
         }
     } else {
         // convert Location with alt-above-home, alt-above-origin or absolute alt
@@ -129,7 +129,7 @@ void AC_Circle::set_center(const Location& center)
         if (!center.get_vector_from_origin_NEU(circle_center_neu)) {
             // default to current position and log error
             circle_center_neu = _inav.get_position_neu_cm();
-            AP::logger().Write_Error(LogErrorSubsystem::NAVIGATION, LogErrorCode::FAILED_CIRCLE_INIT);
+            LOGGER_WRITE_ERROR(LogErrorSubsystem::NAVIGATION, LogErrorCode::FAILED_CIRCLE_INIT);
         }
         set_center(circle_center_neu, false);
     }
@@ -174,7 +174,7 @@ bool AC_Circle::update(float climb_rate_cms)
         _angular_vel = MAX(_angular_vel, _angular_vel_max);
     }
 
-    // update the target angle and total angle traveled
+    // update the target angle and total angle travelled
     float angle_change = _angular_vel * dt;
     _angle += angle_change;
     _angle = wrap_PI(_angle);
@@ -358,7 +358,7 @@ bool AC_Circle::get_terrain_offset(float& offset_cm)
         return false;
     case AC_Circle::TerrainSource::TERRAIN_FROM_RANGEFINDER:
         if (_rangefinder_healthy) {
-            offset_cm = _inav.get_position_z_up_cm() - _rangefinder_alt_cm;
+            offset_cm = _rangefinder_terrain_offset_cm;
             return true;
         }
         return false;

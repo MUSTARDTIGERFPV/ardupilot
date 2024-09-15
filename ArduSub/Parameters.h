@@ -5,6 +5,8 @@
 #include <AP_Common/AP_Common.h>
 
 #include <AP_Gripper/AP_Gripper.h>
+#include <AP_Stats/AP_Stats.h>
+#include <AP_Arming/AP_Arming.h>
 
 #if AP_SCRIPTING_ENABLED
 #include <AP_Scripting/AP_Scripting.h>
@@ -47,7 +49,7 @@ public:
         // Layout version number, always key zero.
         //
         k_param_format_version = 0,
-        k_param_software_type, // unusued
+        k_param_software_type, // unused
 
         k_param_g2, // 2nd block of parameters
 
@@ -147,6 +149,23 @@ public:
         k_param_jbtn_14,
         k_param_jbtn_15,
 
+        // 16 more for MANUAL_CONTROL extensions
+        k_param_jbtn_16,
+        k_param_jbtn_17,
+        k_param_jbtn_18,
+        k_param_jbtn_19,
+        k_param_jbtn_20,
+        k_param_jbtn_21,
+        k_param_jbtn_22,
+        k_param_jbtn_23,
+        k_param_jbtn_24,
+        k_param_jbtn_25,
+        k_param_jbtn_26,
+        k_param_jbtn_27,
+        k_param_jbtn_28,
+        k_param_jbtn_29,
+        k_param_jbtn_30,
+        k_param_jbtn_31,
 
         // PID Controllers
         k_param_p_pos_xy = 126, // deprecated
@@ -293,6 +312,23 @@ public:
     JSButton        jbtn_13;
     JSButton        jbtn_14;
     JSButton        jbtn_15;
+    // 16 - 31 from manual_control extension
+    JSButton        jbtn_16;
+    JSButton        jbtn_17;
+    JSButton        jbtn_18;
+    JSButton        jbtn_19;
+    JSButton        jbtn_20;
+    JSButton        jbtn_21;
+    JSButton        jbtn_22;
+    JSButton        jbtn_23;
+    JSButton        jbtn_24;
+    JSButton        jbtn_25;
+    JSButton        jbtn_26;
+    JSButton        jbtn_27;
+    JSButton        jbtn_28;
+    JSButton        jbtn_29;
+    JSButton        jbtn_30;
+    JSButton        jbtn_31;
 
     // Acro parameters
     AP_Float        acro_rp_p;
@@ -318,6 +354,10 @@ public:
 class ParametersG2 {
 public:
     ParametersG2(void);
+#if STATS_ENABLED == ENABLED
+    // vehicle statistics
+    AP_Stats stats;
+#endif
 
     // var_info for holding Parameter information
     static const struct AP_Param::GroupInfo var_info[];
@@ -344,3 +384,43 @@ public:
 
 extern const AP_Param::Info        var_info[];
 
+// Sub-specific default parameters
+static const struct AP_Param::defaults_table_struct defaults_table[] = {
+    { "BRD_SAFETY_DEFLT",    0 },
+    { "ARMING_CHECK",        AP_Arming::ARMING_CHECK_RC |
+                             AP_Arming::ARMING_CHECK_VOLTAGE |
+                             AP_Arming::ARMING_CHECK_BATTERY},
+    { "CIRCLE_RATE",         2.0f},
+    { "ATC_ACCEL_Y_MAX",     110000.0f},
+    { "ATC_RATE_Y_MAX",      180.0f},
+    { "RC3_TRIM",            1100},
+    { "COMPASS_OFFS_MAX",    1000},
+    { "INS_GYR_CAL",         0},
+    { "MNT1_TYPE",           1},
+    { "MNT1_DEFLT_MODE",     MAV_MOUNT_MODE_RC_TARGETING},
+    { "MNT1_RC_RATE",        30},
+    { "RC7_OPTION",          214},   // MOUNT1_YAW
+    { "RC8_OPTION",          213},   // MOUNT1_PITCH
+    { "MOT_PWM_MIN",         1100},
+    { "MOT_PWM_MAX",         1900},
+    { "PSC_JERK_Z",          50.0f},
+    { "WPNAV_SPEED",         100.0f},
+    { "PILOT_SPEED_UP",      100.0f},
+    { "PSC_VELXY_P",         6.0f},
+    { "EK3_SRC1_VELZ",       0},
+#if CONFIG_HAL_BOARD_SUBTYPE == HAL_BOARD_SUBTYPE_LINUX_NAVIGATOR
+    { "BARO_PROBE_EXT",      0},
+    { "BATT_MONITOR",        4},
+    { "BATT_CAPACITY",       0},
+    { "LEAK1_PIN",           27},
+    { "SCHED_LOOP_RATE",     200},
+    { "SERVO13_FUNCTION",    59},    // k_rcin9, lights 1
+    { "SERVO14_FUNCTION",    60},    // k_rcin10, lights 2
+    { "SERVO16_FUNCTION",    7},     // k_mount_tilt
+    { "SERVO16_REVERSED",    1},
+#else
+    { "BARO_PROBE_EXT",      768},
+    { "SERVO9_FUNCTION",     59},    // k_rcin9, lights 1
+    { "SERVO10_FUNCTION",    7},     // k_mount_tilt
+#endif
+};

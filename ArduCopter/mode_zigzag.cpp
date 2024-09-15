@@ -171,12 +171,12 @@ void ModeZigZag::save_or_move_to_destination(Destination ab_dest)
                 // store point A
                 dest_A = curr_pos;
                 gcs().send_text(MAV_SEVERITY_INFO, "ZigZag: point A stored");
-                AP::logger().Write_Event(LogEvent::ZIGZAG_STORE_A);
+                LOGGER_WRITE_EVENT(LogEvent::ZIGZAG_STORE_A);
             } else {
                 // store point B
                 dest_B = curr_pos;
                 gcs().send_text(MAV_SEVERITY_INFO, "ZigZag: point B stored");
-                AP::logger().Write_Event(LogEvent::ZIGZAG_STORE_B);
+                LOGGER_WRITE_EVENT(LogEvent::ZIGZAG_STORE_B);
             }
             // if both A and B have been stored advance state
             if (!dest_A.is_zero() && !dest_B.is_zero() && !is_zero((dest_B - dest_A).length_squared())) {
@@ -581,6 +581,19 @@ void ModeZigZag::spray(bool b)
         copter.sprayer.run(b);
     }
 #endif
+}
+
+uint32_t ModeZigZag::wp_distance() const
+{
+    return is_auto ? wp_nav->get_wp_distance_to_destination() : 0;
+}
+int32_t ModeZigZag::wp_bearing() const
+{
+    return is_auto ? wp_nav->get_wp_bearing_to_destination() : 0;
+}
+float ModeZigZag::crosstrack_error() const
+{
+    return is_auto ? wp_nav->crosstrack_error() : 0;
 }
 
 #endif // MODE_ZIGZAG_ENABLED == ENABLED

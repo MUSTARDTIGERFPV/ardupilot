@@ -139,6 +139,7 @@ void Plane::rudder_arm_disarm_check()
 				arming.arm(AP_Arming::Method::RUDDER);
                 rudder_arm_timer = 0;
                 seen_neutral_rudder = false;
+                takeoff_state.rudder_takeoff_warn_ms = now;
             }
 		} else {
 			// not at full right rudder
@@ -195,8 +196,8 @@ void Plane::read_radio()
         && channel_throttle->get_control_in() > 50
         && stickmixing) {
         float nudge = (channel_throttle->get_control_in() - 50) * 0.02f;
-        if (ahrs.airspeed_sensor_enabled()) {
-            airspeed_nudge_cm = (aparm.airspeed_max * 100 - aparm.airspeed_cruise_cm) * nudge;
+        if (ahrs.using_airspeed_sensor()) {
+            airspeed_nudge_cm = (aparm.airspeed_max - aparm.airspeed_cruise) * nudge * 100;
         } else {
             throttle_nudge = (aparm.throttle_max - aparm.throttle_cruise) * nudge;
         }
@@ -209,8 +210,10 @@ void Plane::read_radio()
     quadplane.tailsitter.check_input();
 #endif
 
+#if AP_TUNING_ENABLED
     // check for transmitter tuning changes
     tuning.check_input(control_mode->mode_number());
+#endif
 }
 
 int16_t Plane::rudder_input(void)
@@ -221,7 +224,7 @@ int16_t Plane::rudder_input(void)
         return 0;
     }
 
-    if ((g2.flight_options & FlightOptions::DIRECT_RUDDER_ONLY) &&
+    if ((flight_option_enabled(FlightOptions::DIRECT_RUDDER_ONLY)) &&
         !(control_mode == &mode_manual || control_mode == &mode_stabilize || control_mode == &mode_acro)) {
         // the user does not want any input except in these modes
         return 0;
@@ -277,7 +280,10 @@ void Plane::control_failsafe()
         }
     }
 
-    if (ThrFailsafe(g.throttle_fs_enabled.get()) != ThrFailsafe::Enabled) {
+    const bool allow_failsafe_bypass = !arming.is_armed() && !is_flying() && (rc().enabled_protocols() != 0);
+    const bool has_had_input = rc().has_had_rc_receiver() || rc().has_had_rc_override();
+    if ((ThrFailsafe(g.throttle_fs_enabled.get()) != ThrFailsafe::Enabled) || (allow_failsafe_bypass && !has_had_input)) {
+        // If not flying and disarmed don't trigger failsafe until RC has been received for the fist time
         return;
     }
 
@@ -432,11 +438,15 @@ float Plane::rudder_in_expo(bool use_dz) const
 
 bool Plane::throttle_at_zero(void) const
 {
-/* true if throttle stick is at idle position...if throttle trim has been moved
-   to center stick area in conjunction with sprung throttle, cannot use in_trim, must use rc_min
-*/
-    if (((!(g2.flight_options & FlightOptions::CENTER_THROTTLE_TRIM) && channel_throttle->in_trim_dz()) ||
-        (g2.flight_options & FlightOptions::CENTER_THROTTLE_TRIM && channel_throttle->in_min_dz()))) {
+    /*
+      true if throttle stick is at idle position...if throttle trim has been moved
+       to center stick area in conjunction with sprung throttle, cannot use in_trim, must use rc_min
+    */
+    const bool center_trim = flight_option_enabled(FlightOptions::CENTER_THROTTLE_TRIM);
+    if (center_trim && channel_throttle->in_trim_dz()) {
+        return true;
+    }
+    if (!center_trim && channel_throttle->in_min_dz()) {
         return true;
     }
     return false;

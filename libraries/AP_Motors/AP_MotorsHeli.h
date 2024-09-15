@@ -66,9 +66,6 @@ public:
     // heli specific methods
     //
 
-    // parameter_check - returns true if helicopter specific parameters are sensible, used for pre-arm check
-    virtual bool parameter_check(bool display_msg) const;
-	
     //set turbine start flag on to initiaize starting sequence
     void set_turb_start(bool turb_start) { _heliflags.start_engine = turb_start; }
 
@@ -91,29 +88,26 @@ public:
     bool arot_man_enabled() const { return (_main_rotor._rsc_arot_man_enable.get() == 1) ? true : false; }
 
     // set_desired_rotor_speed - sets target rotor speed as a number from 0 ~ 1
-    virtual void set_desired_rotor_speed(float desired_speed) = 0;
+    virtual void set_desired_rotor_speed(float desired_speed);
 
     // get_desired_rotor_speed - gets target rotor speed as a number from 0 ~ 1
-    virtual float get_desired_rotor_speed() const = 0;
+    float get_desired_rotor_speed() const { return _main_rotor.get_desired_speed(); }
 
     // get_main_rotor_speed - estimated rotor speed when no governor or speed sensor used
-    virtual float get_main_rotor_speed() const = 0;
+    float get_main_rotor_speed() const { return _main_rotor.get_rotor_speed(); }
 
     // return true if the main rotor is up to speed
     bool rotor_runup_complete() const { return _heliflags.rotor_runup_complete; }
 
-    // rotor_speed_above_critical - return true if rotor speed is above that critical for flight
-    virtual bool rotor_speed_above_critical() const = 0;
-
     //get rotor governor output
-    virtual float get_governor_output() const = 0;
+    float get_governor_output() const { return _main_rotor.get_governor_output(); }
 
     //get engine throttle output
-    virtual float get_control_output() const = 0;
+    float get_control_output() const { return _main_rotor.get_control_output(); }
 
     // get_motor_mask - returns a bitmask of which outputs are being used for motors or servos (1 means being used)
     //  this can be used to ensure other pwm outputs (i.e. for servos) do not conflict
-    virtual uint32_t get_motor_mask() override = 0;
+    virtual uint32_t get_motor_mask() override;
 
     virtual void set_acro_tail(bool set) {}
 
@@ -162,6 +156,15 @@ public:
     // Run arming checks
     bool arming_checks(size_t buflen, char *buffer) const override;
 
+    // Tell user motor test is disabled on heli
+    bool motor_test_checks(size_t buflen, char *buffer) const override;
+
+    // output_test_seq - disabled on heli, do nothing
+    void _output_test_seq(uint8_t motor_seq, int16_t pwm) override {};
+
+    // Helper function for param conversions to be done in motors class
+    virtual void heli_motors_param_conversions(void) { return; }
+
     // var_info for holding Parameter information
     static const struct AP_Param::GroupInfo var_info[];
 
@@ -186,7 +189,10 @@ protected:
     AP_MotorsHeli_RSC   _main_rotor;            // main rotor
 
     // update_motor_controls - sends commands to motor controllers
-    virtual void update_motor_control(RotorControlState state) = 0;
+    virtual void update_motor_control(AP_MotorsHeli_RSC::RotorControlState state) = 0;
+
+    // Converts AP_Motors::SpoolState from _spool_state variable to AP_MotorsHeli_RSC::RotorControlState
+    AP_MotorsHeli_RSC::RotorControlState get_rotor_control_state() const;
 
     // run spool logic
     void                output_logic();
@@ -203,12 +209,9 @@ protected:
     // move_actuators - moves swash plate and tail rotor
     virtual void move_actuators(float roll_out, float pitch_out, float coll_in, float yaw_out) = 0;
 
-    // reset_swash_servo - free up swash servo for maximum movement
-    void reset_swash_servo(SRV_Channel::Aux_servo_function_t function);
-
     // init_outputs - initialise Servo/PWM ranges and endpoints.  This
     // method also updates the initialised flag.
-    virtual bool init_outputs() = 0;
+    virtual void init_outputs() = 0;
 
     // calculate_armed_scalars - must be implemented by child classes
     virtual void calculate_armed_scalars() = 0;
@@ -219,9 +222,6 @@ protected:
     // servo_test - move servos through full range of movement
     // to be overloaded by child classes, different vehicle types would have different movement patterns
     virtual void servo_test() = 0;
-
-    // write to a swash servo. output value is pwm
-    void rc_write_swash(uint8_t chan, float swash_in);
 
     // save parameters as part of disarming
     void save_params_on_disarm() override;

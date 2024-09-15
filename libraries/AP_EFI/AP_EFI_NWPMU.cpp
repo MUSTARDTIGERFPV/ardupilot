@@ -13,6 +13,10 @@
    along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include "AP_EFI_config.h"
+
+#if AP_EFI_NWPWU_ENABLED
+
 #include <AP_HAL/AP_HAL.h>
 
 #include <AP_Common/AP_Common.h>
@@ -22,15 +26,13 @@
 
 #include "AP_EFI_NWPMU.h"
 
-#if HAL_EFI_NWPWU_ENABLED
-
 extern const AP_HAL::HAL& hal;
 
 AP_EFI_NWPMU::AP_EFI_NWPMU(AP_EFI &_frontend) :
     CANSensor("NWPMU"),
     AP_EFI_Backend(_frontend)
 {
-    register_driver(AP_CANManager::Driver_Type_EFI_NWPMU);
+    register_driver(AP_CAN::Protocol::EFI_NWPMU);
 }
 
 void AP_EFI_NWPMU::handle_frame(AP_HAL::CANFrame &frame)
@@ -131,4 +133,4 @@ void AP_EFI_NWPMU::update()
     copy_to_frontend();
 }
 
-#endif // HAL_EFI_NWPWU_ENABLED
+#endif // AP_EFI_NWPWU_ENABLED

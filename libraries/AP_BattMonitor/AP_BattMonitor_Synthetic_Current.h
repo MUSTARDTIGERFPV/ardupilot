@@ -3,7 +3,7 @@
 #include "AP_BattMonitor.h"
 #include "AP_BattMonitor_Analog.h"
 
-#if AP_BATTMON_SYNTHETIC_CURRENT_ENABLED
+#if AP_BATTERY_SYNTHETIC_CURRENT_ENABLED
 class AP_BattMonitor_Synthetic_Current : public AP_BattMonitor_Analog
 {
 public:
@@ -26,6 +26,6 @@ public:
 
 protected:
 
-    AP_Float    _max_voltage;           /// maximum battery voltage used in current caluculation   
+    AP_Float    _max_voltage;           /// maximum battery voltage used in current calculation   
 };
 #endif

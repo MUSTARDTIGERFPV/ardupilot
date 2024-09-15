@@ -34,9 +34,6 @@ STDOUT_BAUDRATE 57600
 # USB setup
 USB_STRING_MANUFACTURER "Horizon31"
 
-# default the 2nd interface to MAVLink2 until MissionPlanner updates drivers
-define HAL_OTG2_PROTOCOL SerialProtocol_MAVLink2
-
 # now we define the pins that USB is connected on
 PA11 OTG_FS_DM OTG1
 PA12 OTG_FS_DP OTG1
@@ -212,10 +209,6 @@ PC1 SCALED_V3V3 ADC1 SCALE(2)
 # setup scaling defaults
 define HAL_BATT_VOLT_SCALE 18.0
 define HAL_BATT_CURR_SCALE 24.0
-define HAL_BATT_VOLT_PIN 0
-define HAL_BATT_CURR_PIN 1
-define HAL_BATT2_VOLT_PIN 2
-define HAL_BATT2_CURR_PIN 3
 
 # CAN bus
 PI9  CAN1_RX CAN1
@@ -305,9 +298,6 @@ DMA_PRIORITY SDMMC* UART8* ADC* SPI1* TIM*
 
 # enable FAT filesystem support (needs a microSD defined via SDMMC)
 define HAL_OS_FATFS_IO 1
-
-define HAL_BOARD_LOG_DIRECTORY "/APM/LOGS"
-define HAL_BOARD_TERRAIN_DIRECTORY "/APM/TERRAIN"
 
 ROMFS io_firmware.bin Tools/IO_Firmware/iofirmware_f103_8MHz_lowpolh.bin
 

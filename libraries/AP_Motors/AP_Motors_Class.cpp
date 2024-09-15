@@ -33,8 +33,7 @@ AP_Motors::AP_Motors(uint16_t speed_hz) :
     _throttle_slew(),
     _throttle_slew_filter(),
     _spool_desired(DesiredSpoolState::SHUT_DOWN),
-    _spool_state(SpoolState::SHUT_DOWN),
-    _air_density_ratio(1.0f)
+    _spool_state(SpoolState::SHUT_DOWN)
 {
     _singleton = this;
 
@@ -219,6 +218,17 @@ void AP_Motors::set_limit_flag_pitch_roll_yaw(bool flag)
     limit.yaw = flag;
 }
 
+#if AP_SCRIPTING_ENABLED
+void AP_Motors::set_external_limits(bool roll, bool pitch, bool yaw, bool throttle_lower, bool throttle_upper)
+{
+    external_limits.roll = roll;
+    external_limits.pitch = pitch;
+    external_limits.yaw = yaw;
+    external_limits.throttle_lower = throttle_lower;
+    external_limits.throttle_upper = throttle_upper;
+}
+#endif
+
 // returns true if the configured PWM type is digital and should have fixed endpoints
 bool AP_Motors::is_digital_pwm_type() const
 {
@@ -281,6 +291,14 @@ bool AP_Motors::arming_checks(size_t buflen, char *buffer) const
     }
 
     return true;
+}
+
+bool AP_Motors::motor_test_checks(size_t buflen, char *buffer) const
+{
+    // Must pass base class arming checks (the function above)
+    // Do not run frame specific arming checks as motor test is less strict
+    // For example not all the outputs have to be assigned
+    return AP_Motors::arming_checks(buflen, buffer);
 }
 
 namespace AP {

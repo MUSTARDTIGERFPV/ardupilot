@@ -26,6 +26,7 @@
 #include <AP_AHRS/AP_AHRS.h>
 #include <AP_Vehicle/AP_Vehicle_Type.h>
 #include <AP_Filesystem/AP_Filesystem.h>
+#include <AP_Rally/AP_Rally.h>
 
 extern const AP_HAL::HAL& hal;
 
@@ -75,7 +76,7 @@ const AP_Param::GroupInfo AP_Terrain::var_info[] = {
     // @Units: m
     // @Range: 0 50
     // @User: Advanced
-    AP_GROUPINFO("OFS_MAX",  4, AP_Terrain, offset_max, 15),
+    AP_GROUPINFO("OFS_MAX",  4, AP_Terrain, offset_max, 30),
     
     AP_GROUPEND
 };
@@ -234,16 +235,30 @@ bool AP_Terrain::height_terrain_difference_home(float &terrain_difference, bool 
 */
 bool AP_Terrain::height_above_terrain(float &terrain_altitude, bool extrapolate)
 {
-    float terrain_difference;
-    if (!height_terrain_difference_home(terrain_difference, extrapolate)) {
+    const AP_AHRS &ahrs = AP::ahrs();
+
+    Location current_loc;
+    if (!ahrs.get_location(current_loc)) {
+        // we don't know where we are
         return false;
     }
 
-    float relative_home_altitude;
-    AP::ahrs().get_relative_position_D_home(relative_home_altitude);
-    relative_home_altitude = -relative_home_altitude;
+    float theight_loc;
+    if (!height_amsl(current_loc, theight_loc)) {
+        if (!extrapolate) {
+            return false;
+        }
+        // we don't have data at the current location, but the caller
+        // has asked for extrapolation, so use the last available
+        // terrain height. This can be used to fill in while new data
+        // is fetched. It should be very rarely used
+        theight_loc = last_current_loc_height;
+    }
 
-    terrain_altitude = relative_home_altitude - terrain_difference;
+    int32_t height_amsl_cm = 0;
+    UNUSED_RESULT(current_loc.get_alt_cm(Location::AltFrame::ABSOLUTE, height_amsl_cm));
+
+    terrain_altitude = height_amsl_cm*0.01 - theight_loc;
     return true;
 }
 
@@ -271,6 +286,22 @@ bool AP_Terrain::height_relative_home_equivalent(float terrain_altitude,
         return false;
     }
     relative_home_altitude = terrain_altitude + terrain_difference;
+
+    /*
+      adjust for height of home above terrain height at home
+     */
+    const AP_AHRS &ahrs = AP::ahrs();
+    const auto &home = ahrs.get_home();
+    int32_t home_height_amsl_cm = 0;
+    UNUSED_RESULT(home.get_alt_cm(Location::AltFrame::ABSOLUTE, home_height_amsl_cm));
+
+    float theight_home;
+    if (!height_amsl(home, theight_home)) {
+        return false;
+    }
+
+    relative_home_altitude += theight_home - home_height_amsl_cm*0.01;
+    
     return true;
 }
 
@@ -409,6 +440,7 @@ bool AP_Terrain::pre_arm_checks(char *failure_msg, uint8_t failure_msg_len) cons
     return true;
 }
 
+#if HAL_LOGGING_ENABLED
 void AP_Terrain::log_terrain_data()
 {
     if (!allocate()) {
@@ -442,6 +474,7 @@ void AP_Terrain::log_terrain_data()
     };
     AP::logger().WriteBlock(&pkt, sizeof(pkt));
 }
+#endif
 
 /*
   allocate terrain cache. Making this dynamically allocated allows
@@ -457,7 +490,7 @@ bool AP_Terrain::allocate(void)
     }
     cache = (struct grid_cache *)calloc(TERRAIN_GRID_BLOCK_CACHE_SIZE, sizeof(cache[0]));
     if (cache == nullptr) {
-        gcs().send_text(MAV_SEVERITY_CRITICAL, "Terrain: Allocation failed");
+        GCS_SEND_TEXT(MAV_SEVERITY_CRITICAL, "Terrain: Allocation failed");
         memory_alloc_failed = true;
         return false;
     }

@@ -4,6 +4,9 @@ class Parameter(object):
         self.name = name
         self.real_path = real_path
 
+    def change_name(self, name):
+        self.name = name
+
 
 class Vehicle(object):
     def __init__(self, name, path, reference=None):
@@ -47,6 +50,8 @@ known_param_fields = [
              'Volatile',
              'ReadOnly',
              'Calibration',
+             'Vector3Parameter',
+             'SortValues'
                       ]
 
 # Follow SI units conventions from:
@@ -124,6 +129,8 @@ known_units = {
              'RPM'     : 'Revolutions Per Minute',
              'kg/m/m'  : 'kilograms per square meter', # metre is the SI unit name, meter is the american spelling of it
              'kg/m/m/m': 'kilograms per cubic meter',
+             'litres'  : 'litres',
+             'Ohm'     : 'Ohm',
              }
 
 required_param_fields = [

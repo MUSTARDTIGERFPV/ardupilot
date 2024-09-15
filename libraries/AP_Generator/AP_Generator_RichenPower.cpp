@@ -30,6 +30,8 @@ extern const AP_HAL::HAL& hal;
 // init method; configure communications with the generator
 void AP_Generator_RichenPower::init()
 {
+    ASSERT_STORAGE_SIZE(RichenPacket, 70);
+
     const AP_SerialManager &serial_manager = AP::serialmanager();
 
     uart = serial_manager.find_serial(AP_SerialManager::SerialProtocol_Generator, 0);
@@ -41,7 +43,7 @@ void AP_Generator_RichenPower::init()
     // Tell frontend what measurements are available for this generator
     _frontend._has_current = true;
     _frontend._has_consumed_energy = false;
-    _frontend._has_fuel_remaining_pct = false;
+    _frontend._has_fuel_remaining = false;
 }
 
 // find a RichenPower message in the buffer, starting at
@@ -190,7 +192,7 @@ bool AP_Generator_RichenPower::generator_ok_to_run() const
 constexpr float AP_Generator_RichenPower::heat_required_for_run()
 {
     // assume that heat is proportional to RPM.  Return a number
-    // proportial to RPM.  Reduce it to account for the cooling some%/s
+    // proportional to RPM.  Reduce it to account for the cooling some%/s
     // cooling
     return (45 * IDLE_RPM) * heat_environment_loss_30s;
 }
@@ -235,7 +237,9 @@ void AP_Generator_RichenPower::update(void)
 
     update_frontend_readings();
 
+#if HAL_LOGGING_ENABLED
     Log_Write();
+#endif
 }
 
 // update_runstate updates the servo output we use to control the
@@ -308,6 +312,7 @@ void AP_Generator_RichenPower::update_runstate()
     }
 }
 
+#if HAL_LOGGING_ENABLED
 // log generator status to the onboard log
 void AP_Generator_RichenPower::Log_Write()
 {
@@ -336,6 +341,7 @@ void AP_Generator_RichenPower::Log_Write()
         last_reading.mode
         );
 }
+#endif
 
 // generator prearm checks; notably, if we never see a generator we do
 // not run the checks.  Generators are attached/detached at will, and

@@ -20,9 +20,11 @@
   timing for register reads and writes is critical
  */
 
-#include "AP_OpticalFlow_Pixart.h"
+#include "AP_OpticalFlow_config.h"
 
 #if AP_OPTICALFLOW_PIXART_ENABLED
+
+#include "AP_OpticalFlow_Pixart.h"
 
 #include <AP_HAL/AP_HAL.h>
 #include <AP_Math/crc.h>
@@ -285,7 +287,11 @@ void AP_OpticalFlow_Pixart::timer(void)
 
     uint32_t dt_us = last_burst_us - integral.last_frame_us;
     float dt = dt_us * 1.0e-6;
+#if AP_AHRS_ENABLED
     const Vector3f &gyro = AP::ahrs().get_gyro();
+#else
+    const Vector3f &gyro = AP::ins().get_gyro();
+#endif
 
     {
         WITH_SEMAPHORE(_sem);

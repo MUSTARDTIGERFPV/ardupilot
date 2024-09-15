@@ -27,6 +27,7 @@
 #include "hwdef/common/flash.h"
 #include <AP_ROMFS/AP_ROMFS.h>
 #include <AP_Common/ExpandingString.h>
+#include <AP_InternalError/AP_InternalError.h>
 #include "sdcard.h"
 #include "shared_dma.h"
 #if defined(HAL_PWM_ALARM) || HAL_DSHOT_ALARM_ENABLED || HAL_CANMANAGER_ENABLED || HAL_USE_PWM == TRUE
@@ -34,6 +35,7 @@
 #endif
 #if HAL_ENABLE_SAVE_PERSISTENT_PARAMS
 #include <AP_InertialSensor/AP_InertialSensor.h>
+#include <AP_OpenDroneID/AP_OpenDroneID.h>
 #endif
 #ifndef HAL_BOOTLOADER_BUILD
 #include <AP_Logger/AP_Logger.h>
@@ -48,6 +50,7 @@ extern AP_IOMCU iomcu;
 #if AP_SIGNED_FIRMWARE && !defined(HAL_BOOTLOADER_BUILD)
 #include <AP_CheckFirmware/AP_CheckFirmware.h>
 #endif
+
 
 extern const AP_HAL::HAL& hal;
 
@@ -73,6 +76,12 @@ void* Util::malloc_type(size_t size, AP_HAL::Util::Memory_Type mem_type)
         return malloc_dma(size);
     } else if (mem_type == AP_HAL::Util::MEM_FAST) {
         return malloc_fastmem(size);
+    } else if (mem_type == AP_HAL::Util::MEM_FILESYSTEM) {
+#if defined(STM32H7)
+        return malloc_axi_sram(size);
+#else
+        return malloc_dma(size);
+#endif
     } else {
         return calloc(1, size);
     }
@@ -135,7 +144,7 @@ void *Util::heap_realloc(void *heap, void *ptr, size_t old_size, size_t new_size
     void *new_mem = chHeapAlloc((memory_heap_t *)heap, new_size);
     if (new_mem != nullptr) {
         const size_t old_size2 = chHeapGetSize(ptr);
-#ifdef HAL_DEBUG_BUILD
+#if defined(HAL_DEBUG_BUILD) && !defined(IOMCU_FW)
         if (new_size != 0 && old_size2 != old_size) {
             INTERNAL_ERROR(AP_InternalError::error_t::invalid_arg_or_result);
         }
@@ -217,7 +226,7 @@ void Util::toneAlarm_set_buzzer_tone(float frequency, float volume, uint32_t dur
 #endif // HAL_USE_PWM
 #if HAL_DSHOT_ALARM_ENABLED
     // don't play the motors while flying
-    if (!(_toneAlarm_types & AP_Notify::Notify_Buzz_DShot) || get_soft_armed() || hal.rcout->get_dshot_esc_type() != RCOutput::DSHOT_ESC_BLHELI) {
+    if (!(_toneAlarm_types & AP_Notify::Notify_Buzz_DShot) || get_soft_armed() || hal.rcout->get_dshot_esc_type() == RCOutput::DSHOT_ESC_NONE) {
         return;
     }
 
@@ -253,15 +262,20 @@ uint64_t Util::get_hw_rtc() const
     return stm32_get_utc_usec();
 }
 
-#if !defined(HAL_NO_FLASH_SUPPORT) && !defined(HAL_NO_ROMFS_SUPPORT)
-
 #include <GCS_MAVLink/GCS.h>
+
+#if AP_BOOTLOADER_FLASHING_ENABLED
+
 #if HAL_GCS_ENABLED
 #define Debug(fmt, args ...)  do { gcs().send_text(MAV_SEVERITY_INFO, fmt, ## args); } while (0)
 #endif // HAL_GCS_ENABLED
 
 #ifndef Debug
 #define Debug(fmt, args ...)  do { hal.console->printf(fmt, ## args); } while (0)
+#endif
+
+#ifdef HAL_NO_FLASH_SUPPORT
+#error "Bootloader-flashing enabled but no flashing support"
 #endif
 
 Util::FlashBootloader Util::flash_bootloader()
@@ -371,7 +385,7 @@ Util::FlashBootloader Util::flash_bootloader()
     AP_ROMFS::free(fw);
     return FlashBootloader::FAIL;
 }
-#endif // !HAL_NO_FLASH_SUPPORT && !HAL_NO_ROMFS_SUPPORT
+#endif // AP_BOOTLOADER_FLASHING_ENABLED
 
 /*
   display system identifer - board type and serial number
@@ -417,7 +431,7 @@ bool Util::was_watchdog_reset() const
 __RAMFUNC__ void Util::thread_info(ExpandingString &str)
 {
 #if HAL_ENABLE_THREAD_STATISTICS
-    uint64_t cumulative_cycles = ch.kernel_stats.m_crit_isr.cumulative;
+    uint64_t cumulative_cycles = currcore->kernel_stats.m_crit_isr.cumulative;
     for (thread_t *tp = chRegFirstThread(); tp; tp = chRegNextThread(tp)) {
         if (tp->stats.best > 0) { // not run
             cumulative_cycles += (uint64_t)tp->stats.cumulative;
@@ -430,8 +444,8 @@ __RAMFUNC__ void Util::thread_info(ExpandingString &str)
     str.printf("ThreadsV2\nISR           PRI=255 sp=%p STACK=%u/%u LOAD=%4.1f%%\n",
                 &__main_stack_base__,
                 unsigned(stack_free(&__main_stack_base__)),
-                unsigned(isr_stack_size), 100.0f * float(ch.kernel_stats.m_crit_isr.cumulative) / float(cumulative_cycles));
-    ch.kernel_stats.m_crit_isr.cumulative = 0U;
+                unsigned(isr_stack_size), 100.0f * float(currcore->kernel_stats.m_crit_isr.cumulative) / float(cumulative_cycles));
+    currcore->kernel_stats.m_crit_isr.cumulative = 0U;
 #else
     str.printf("ThreadsV2\nISR           PRI=255 sp=%p STACK=%u/%u\n",
                 &__main_stack_base__,
@@ -527,6 +541,12 @@ bool Util::get_persistent_params(ExpandingString &str) const
         ins->get_persistent_params(str);
     }
 #endif
+#if AP_OPENDRONEID_ENABLED
+    const auto *odid = AP_OpenDroneID::get_singleton();
+    if (odid) {
+        odid->get_persistent_params(str);
+    }
+#endif
     if (str.has_failed_allocation() || str.get_length() <= strlen(persistent_header)) {
         // no data
         return false;
@@ -551,6 +571,38 @@ bool Util::load_persistent_params(ExpandingString &str) const
     if (s) {
         str.append(s, (addr+size) - uint32_t(s));
         return !str.has_failed_allocation();
+    }
+    return false;
+}
+
+/*
+  get a persistent variable by name,
+  len is the length of the value buffer, and is updated with the length of the value
+ */
+bool Util::get_persistent_param_by_name(const char *name, char* value, size_t& len) const
+{
+    ExpandingString persistent_params {};
+    if (!load_persistent_params(persistent_params)) {
+        return false;
+    }
+    char *s = persistent_params.get_writeable_string();
+    if (s == nullptr) {
+        return false;
+    }
+    char *saveptr;
+    s += strlen(persistent_header);
+    for (char *p = strtok_r(s, "\n", &saveptr);
+         p; p = strtok_r(nullptr, "\n", &saveptr)) {
+        char *eq = strchr(p, int('='));
+        if (eq) {
+            *eq = 0;
+            if (strcmp(p, name) == 0) {
+                // also get the length of the value
+                strncpy(value, eq+1, len);
+                len = strlen(value);
+                return true;
+            }
+        }
     }
     return false;
 }
@@ -660,9 +712,7 @@ bool Util::get_random_vals(uint8_t* data, size_t size)
 {
 #if HAL_USE_HW_RNG && defined(RNG)
     size_t true_random_vals = stm32_rand_generate_nonblocking(data, size);
-    if (true_random_vals == size) {
-        return true;
-    } else {
+    if (true_random_vals != size) {
         if (!(true_random_vals % 2)) {
             data[true_random_vals] = (uint8_t)(get_random16() & 0xFF);
             true_random_vals++;
@@ -673,10 +723,18 @@ bool Util::get_random_vals(uint8_t* data, size_t size)
             true_random_vals+=sizeof(uint16_t);
         }
     }
-    return true;
 #else
-    return false;
+    size_t true_random_vals = 0;
+    while(true_random_vals < size) {
+        uint16_t val = get_random16();
+        memcpy(&data[true_random_vals], &val, sizeof(uint16_t));
+        true_random_vals+=sizeof(uint16_t);
+    }
+    if (size % 2) {
+        data[size-1] = get_random16() & 0xFF;
+    }
 #endif
+    return true;
 }
 
 /**

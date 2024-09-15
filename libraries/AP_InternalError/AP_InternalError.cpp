@@ -1,6 +1,12 @@
+#include "AP_InternalError_config.h"
+
+#if AP_INTERNALERROR_ENABLED
+
 #include "AP_InternalError.h"
 
-#include <AP_BoardConfig/AP_BoardConfig.h>
+#include <AP_HAL/HAL.h>
+#include <AP_HAL/Util.h>
+
 #include <stdio.h>
 
 extern const AP_HAL::HAL &hal;
@@ -21,6 +27,9 @@ void AP_InternalError::error(const AP_InternalError::error_t e, uint16_t line) {
         AP::internalerror().error_to_string(buffer, ARRAY_SIZE(buffer), e);
         AP_HAL::panic("AP_InternalError::error_t::%s", buffer);
     }
+#endif
+#if CONFIG_HAL_BOARD == HAL_BOARD_ESP32
+if (e == AP_InternalError::error_t::imu_reset) return;// don't worry about this for esp32
 #endif
     internal_errors |= uint32_t(e);
     total_error_count++;
@@ -134,3 +143,5 @@ void AP_memory_guard_error(uint32_t size)
         AP_HAL::panic("memory guard size=%u\n", unsigned(size));
     }
 }
+
+#endif  // AP_INTERNALERROR_ENABLED

@@ -1,7 +1,12 @@
+#include "AC_PrecLand_config.h"
+
+#if AC_PRECLAND_ENABLED
+
+#include "AC_PrecLand.h"
 #include <AP_HAL/AP_HAL.h>
 #include <AP_Scheduler/AP_Scheduler.h>
 #include <AP_AHRS/AP_AHRS.h>
-#include "AC_PrecLand.h"
+
 #include "AC_PrecLand_Backend.h"
 #include "AC_PrecLand_Companion.h"
 #include "AC_PrecLand_IRLock.h"
@@ -145,7 +150,7 @@ const AP_Param::GroupInfo AC_PrecLand::var_info[] = {
 
     // @Param: TIMEOUT
     // @DisplayName: PrecLand retry timeout
-    // @Description: Time for which vehicle continues descend even if target is lost. After this time period, vehicle will attemp a landing retry depending on PLND_STRICT parameter.
+    // @Description: Time for which vehicle continues descend even if target is lost. After this time period, vehicle will attempt a landing retry depending on PLND_STRICT parameter.
     // @Range: 0 20
     // @Units: s
     AP_GROUPINFO("TIMEOUT", 13, AC_PrecLand, _retry_timeout_sec, 4),
@@ -173,7 +178,7 @@ const AP_Param::GroupInfo AC_PrecLand::var_info[] = {
     // @Param: OPTIONS
     // @DisplayName: Precision Landing Extra Options
     // @Description: Precision Landing Extra Options
-    // @Bitmask: 0: Moving Landing Target, 1: Allow Precision Landing after manual reposition 
+    // @Bitmask: 0: Moving Landing Target, 1: Allow Precision Landing after manual reposition, 2: Maintain high speed in final descent
     // @User: Advanced
     AP_GROUPINFO("OPTIONS", 17, AC_PrecLand, _options, 0),
 
@@ -236,17 +241,23 @@ void AC_PrecLand::init(uint16_t update_rate_hz)
         default:
             return;
         // companion computer
+#if AC_PRECLAND_COMPANION_ENABLED
         case Type::COMPANION:
             _backend = new AC_PrecLand_Companion(*this, _backend_state);
             break;
         // IR Lock
+#endif
+#if AC_PRECLAND_IRLOCK_ENABLED
         case Type::IRLOCK:
             _backend = new AC_PrecLand_IRLock(*this, _backend_state);
             break;
-#if CONFIG_HAL_BOARD == HAL_BOARD_SITL
+#endif
+#if AC_PRECLAND_SITL_GAZEBO_ENABLED
         case Type::SITL_GAZEBO:
             _backend = new AC_PrecLand_SITL_Gazebo(*this, _backend_state);
             break;
+#endif
+#if AC_PRECLAND_SITL_ENABLED
         case Type::SITL:
             _backend = new AC_PrecLand_SITL(*this, _backend_state);
             break;
@@ -299,11 +310,13 @@ void AC_PrecLand::update(float rangefinder_alt_cm, bool rangefinder_alt_valid)
     // check the status of the landing target location
     check_target_status(rangefinder_alt_m, rangefinder_alt_valid);
 
+#if HAL_LOGGING_ENABLED
     const uint32_t now = AP_HAL::millis();
     if (now - last_log_ms > 40) {  // 25Hz
         last_log_ms = now;
         Write_Precland();
     }
+#endif
 }
 
 // check the status of the target
@@ -389,7 +402,7 @@ bool AC_PrecLand::target_acquired()
 {
     if ((AP_HAL::millis()-_last_update_ms) > LANDING_TARGET_TIMEOUT_MS) {
         if (_target_acquired) {
-            // just lost the landing target, inform the user. This message will only be sent once everytime target is lost
+            // just lost the landing target, inform the user. This message will only be sent once every time target is lost
             gcs().send_text(MAV_SEVERITY_CRITICAL, "PrecLand: Target Lost");
         }
         // not had a sensor update since a long time
@@ -611,7 +624,7 @@ bool AC_PrecLand::retrieve_los_meas(Vector3f& target_vec_unit_body)
         }
 
 
-        // rotate vector based on sensor oriention to get correct body frame vector
+        // rotate vector based on sensor orientation to get correct body frame vector
         if (_orient != ROTATION_PITCH_270) {
             // by default, the vector is constructed downwards in body frame
             // hence, we do not do any rotation if the orientation is downwards
@@ -714,6 +727,9 @@ void AC_PrecLand::run_output_prediction()
     _target_vel_rel_out_NE.x -= vel_ned_rel_imu.x;
     _target_vel_rel_out_NE.y -= vel_ned_rel_imu.y;
 
+    // remember vehicle velocity
+    UNUSED_RESULT(_ahrs.get_velocity_NED(_last_veh_velocity_NED_ms));
+
     // Apply land offset
     Vector3f land_ofs_ned_m = _ahrs.get_rotation_body_to_ned() * Vector3f(_land_ofs_cm_x,_land_ofs_cm_y,0) * 0.01f;
     _target_pos_rel_out_NE.x += land_ofs_ned_m.x;
@@ -729,6 +745,46 @@ void AC_PrecLand::run_output_prediction()
     _last_valid_target_ms = AP_HAL::millis();
 }
 
+/*
+  get target location lat/lon. Note that altitude in returned
+  location is not reliable
+ */
+bool AC_PrecLand::get_target_location(Location &loc)
+{
+    if (!target_acquired()) {
+        return false;
+    }
+    if (!AP::ahrs().get_origin(loc)) {
+        return false;
+    }
+    loc.offset(_last_target_pos_rel_origin_NED.x, _last_target_pos_rel_origin_NED.y);
+    loc.alt -= _last_target_pos_rel_origin_NED.z*100;
+    return true;
+}
+
+/*
+  get the absolute velocity of the target in m/s.
+  return false if we cannot estimate target velocity or if the target is not acquired
+*/
+bool AC_PrecLand::get_target_velocity(Vector2f& target_vel)
+{
+    if (!(_options & PLND_OPTION_MOVING_TARGET)) {
+        // the target should not be moving
+        return false;
+    }
+    if ((EstimatorType)_estimator_type.get() == EstimatorType::RAW_SENSOR) {
+        return false;
+    }
+    Vector2f target_vel_rel_cms;
+    if (!get_target_velocity_relative_cms(target_vel_rel_cms)) {
+        return false;
+    }
+    // return the absolute velocity
+    target_vel = (target_vel_rel_cms*0.01) + _last_veh_velocity_NED_ms.xy();
+    return true;
+}
+
+#if HAL_LOGGING_ENABLED
 // Write a precision landing entry
 void AC_PrecLand::Write_Precland()
 {
@@ -762,6 +818,7 @@ void AC_PrecLand::Write_Precland()
     };
     AP::logger().WriteBlock(&pkt, sizeof(pkt));
 }
+#endif
 
 // singleton instance
 AC_PrecLand *AC_PrecLand::_singleton;
@@ -774,3 +831,5 @@ AC_PrecLand *ac_precland()
 }
 
 }
+
+#endif // AC_PRECLAND_ENABLED

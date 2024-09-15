@@ -2,6 +2,8 @@
 
 #include "AP_BattMonitor_SMBus.h"
 
+#if AP_BATTERY_SMBUS_SOLO_ENABLED
+
 class AP_BattMonitor_SMBus_Solo : public AP_BattMonitor_SMBus
 {
 public:
@@ -16,4 +18,7 @@ private:
     void timer(void) override;
 
     uint8_t _button_press_count;
+    bool _use_extended;
 };
+
+#endif  // AP_BATTERY_SMBUS_SOLO_ENABLED

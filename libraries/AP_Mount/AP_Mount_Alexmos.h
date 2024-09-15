@@ -5,10 +5,6 @@
 
 #include "AP_Mount_Backend.h"
 
-#ifndef HAL_MOUNT_ALEXMOS_ENABLED
-#define HAL_MOUNT_ALEXMOS_ENABLED HAL_MOUNT_ENABLED
-#endif
-
 #if HAL_MOUNT_ALEXMOS_ENABLED
 #include <AP_HAL/AP_HAL.h>
 #include <AP_Param/AP_Param.h>
@@ -68,9 +64,7 @@ class AP_Mount_Alexmos : public AP_Mount_Backend
 {
 public:
     //constructor
-    AP_Mount_Alexmos(AP_Mount &frontend, AP_Mount_Params &params, uint8_t instance):
-        AP_Mount_Backend(frontend, params, instance)
-    {}
+    using AP_Mount_Backend::AP_Mount_Backend;
 
     // init - performs any required initialisation for this instance
     void init() override;
@@ -117,8 +111,6 @@ private:
 
     // read_incoming - detect and read the header of the incoming message from the gimbal
     void read_incoming();
-
-    MountTarget _angle_rad;         // latest angle target
 
     // structure for the Serial Protocol
 

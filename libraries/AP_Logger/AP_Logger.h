@@ -5,16 +5,14 @@
 
 #include "AP_Logger_config.h"
 
+#if HAL_LOGGING_ENABLED
+
 #include <AP_HAL/AP_HAL.h>
 #include <AP_Common/AP_Common.h>
 #include <AP_Param/AP_Param.h>
 #include <AP_Mission/AP_Mission.h>
 #include <AP_Logger/LogStructure.h>
 #include <AP_Vehicle/ModeReason.h>
-
-#if HAL_LOGGER_FENCE_ENABLED
-    #include <AC_Fence/AC_Fence.h>
-#endif
 
 #include <stdint.h>
 
@@ -165,7 +163,7 @@ enum class LogErrorCode : uint8_t {
     FAILED_CIRCLE_INIT = 4,
     DEST_OUTSIDE_FENCE = 5,
     RTL_MISSING_RNGFND = 6,
-    // subsystem specific error codes -- internal_error
+// subsystem specific error codes -- internal_error
     INTERNAL_ERRORS_DETECTED = 1,
 
 // parachute failed to deploy because of low altitude or landed
@@ -177,7 +175,7 @@ enum class LogErrorCode : uint8_t {
 // Baro specific error codes
     BARO_GLITCH = 2,
     BAD_DEPTH = 3, // sub-only
-// GPS specific error coces
+// GPS specific error codes
     GPS_GLITCH = 2,
 };
 
@@ -230,6 +228,7 @@ public:
     uint16_t find_last_log() const;
     void get_log_boundaries(uint16_t log_num, uint32_t & start_page, uint32_t & end_page);
     uint16_t get_num_logs(void);
+    uint16_t get_max_num_logs();
 
     void setVehicle_Startup_Writer(vehicle_startup_message_Writer writer);
 
@@ -251,11 +250,13 @@ public:
 #if HAL_LOGGER_FENCE_ENABLED
     void Write_Fence();
 #endif
+    void Write_NamedValueFloat(const char *name, float value);
     void Write_Power(void);
     void Write_Radio(const mavlink_radio_t &packet);
     void Write_Message(const char *message);
     void Write_MessageF(const char *fmt, ...);
-    void Write_ServoStatus(uint64_t time_us, uint8_t id, float position, float force, float speed, uint8_t power_pct);
+    void Write_ServoStatus(uint64_t time_us, uint8_t id, float position, float force, float speed, uint8_t power_pct,
+                           float pos_cmd, float voltage, float current, float mot_temp, float pcb_temp, uint8_t error);
     void Write_Compass();
     void Write_Mode(uint8_t mode, const ModeReason reason);
 
@@ -311,9 +312,17 @@ public:
     void set_force_log_disarmed(bool force_logging) { _force_log_disarmed = force_logging; }
     void set_long_log_persist(bool b) { _force_long_log_persist = b; }
     bool log_while_disarmed(void) const;
+    bool in_log_persistance(void) const;
     uint8_t log_replay(void) const { return _params.log_replay; }
 
     vehicle_startup_message_Writer _vehicle_messages;
+
+    enum class LogDisarmed : uint8_t {
+        NONE = 0,
+        LOG_WHILE_DISARMED = 1,
+        LOG_WHILE_DISARMED_NOT_USB = 2,
+        LOG_WHILE_DISARMED_DISCARD = 3,
+    };
 
     // parameter support
     static const struct AP_Param::GroupInfo        var_info[];
@@ -321,7 +330,7 @@ public:
         AP_Int8 backend_types;
         AP_Int16 file_bufsize; // in kilobytes
         AP_Int8 file_disarm_rot;
-        AP_Int8 log_disarmed;
+        AP_Enum<LogDisarmed> log_disarmed;
         AP_Int8 log_replay;
         AP_Int8 mav_bufsize; // in kilobytes
         AP_Int16 file_timeout; // in seconds
@@ -329,6 +338,8 @@ public:
         AP_Float file_ratemax;
         AP_Float mav_ratemax;
         AP_Float blk_ratemax;
+        AP_Float disarm_ratemax;
+        AP_Int16 max_log_files;
     } _params;
 
     const struct LogStructure *structure(uint16_t num) const;
@@ -422,6 +433,11 @@ private:
         FILESYSTEM = (1<<0),
         MAVLINK    = (1<<1),
         BLOCK      = (1<<2),
+    };
+
+    enum class RCLoggingFlags : uint8_t {
+        HAS_VALID_INPUT = 1U<<0,  // true if the system is receiving good RC values
+        IN_RC_FAILSAFE =  1U<<1,  // true if the system is current in RC failsafe
     };
 
     /*
@@ -582,6 +598,10 @@ private:
 
     /* end support for retrieving logs via mavlink: */
 
+    // convenience method for writing out the identical NED PIDs - and
+    // to save bytes
+    void Write_PSCx(LogMessages ID, float pos_target, float pos, float vel_desired, float vel_target, float vel, float accel_desired, float accel_target, float accel);
+
 #if HAL_LOGGER_FILE_CONTENTS_ENABLED
     void log_file_content(FileContent &file_content, const char *filename);
     void file_content_update(FileContent &file_content);
@@ -591,3 +611,13 @@ private:
 namespace AP {
     AP_Logger &logger();
 };
+
+#define LOGGER_WRITE_ERROR(subsys, err) AP::logger().Write_Error(subsys, err)
+#define LOGGER_WRITE_EVENT(evt) AP::logger().Write_Event(evt)
+
+#else
+
+#define LOGGER_WRITE_ERROR(subsys, err)
+#define LOGGER_WRITE_EVENT(evt)
+
+#endif  // HAL_LOGGING_ENABLED

@@ -209,6 +209,24 @@ void NavEKF3_core::updateStateIndexLim()
     }
 }
 
+// set the default yaw source
+void NavEKF3_core::setYawSource()
+{
+    AP_NavEKF_Source::SourceYaw yaw_source = frontend->sources.getYawSource();
+    if (wasLearningCompass_ms > 0) {
+        // can't use compass while it is being calibrated
+        if (yaw_source == AP_NavEKF_Source::SourceYaw::COMPASS) {
+            yaw_source = AP_NavEKF_Source::SourceYaw::NONE;
+        } else if (yaw_source == AP_NavEKF_Source::SourceYaw::GPS_COMPASS_FALLBACK) {
+            yaw_source = AP_NavEKF_Source::SourceYaw::GPS;
+        }
+    }
+    if (yaw_source != yaw_source_last) {
+        yaw_source_last = yaw_source;
+        yaw_source_reset = true;
+    }
+}
+
 // Set inertial navigation aiding mode
 void NavEKF3_core::setAidingMode()
 {
@@ -217,6 +235,8 @@ void NavEKF3_core::setAidingMode()
 
     // Save the previous status so we can detect when it has changed
     PV_AidingModePrev = PV_AidingMode;
+
+    setYawSource();
 
     // Check that the gyro bias variance has converged
     checkGyroCalStatus();
@@ -231,6 +251,7 @@ void NavEKF3_core::setAidingMode()
     {
         PV_AidingMode = AID_NONE;
         yawAlignComplete = false;
+        yawAlignGpsValidCount = 0;
         finalInflightYawInit = false;
         ResetVelocity(resetDataSource::DEFAULT);
         ResetPosition(resetDataSource::DEFAULT);
@@ -304,7 +325,7 @@ void NavEKF3_core::setAidingMode()
 
 #if EK3_FEATURE_BEACON_FUSION
             // Check if range beacon data is being used
-            const bool rngBcnUsed = (imuSampleTime_ms - lastRngBcnPassTime_ms <= minTestTime_ms);
+            const bool rngBcnUsed = (imuSampleTime_ms - rngBcn.lastPassTime_ms <= minTestTime_ms);
 #else
             const bool rngBcnUsed = false;
 #endif
@@ -328,7 +349,7 @@ void NavEKF3_core::setAidingMode()
             	attAidLossCritical = (imuSampleTime_ms - prevFlowFuseTime_ms > frontend->tiltDriftTimeMax_ms) &&
                 		(imuSampleTime_ms - lastTasPassTime_ms > frontend->tiltDriftTimeMax_ms) &&
 #if EK3_FEATURE_BEACON_FUSION
-                        (imuSampleTime_ms - lastRngBcnPassTime_ms > frontend->tiltDriftTimeMax_ms) &&
+                        (imuSampleTime_ms - rngBcn.lastPassTime_ms > frontend->tiltDriftTimeMax_ms) &&
 #endif
                         (imuSampleTime_ms - lastPosPassTime_ms > frontend->tiltDriftTimeMax_ms) &&
                         (imuSampleTime_ms - lastVelPassTime_ms > frontend->tiltDriftTimeMax_ms);
@@ -345,7 +366,7 @@ void NavEKF3_core::setAidingMode()
                 }
                 posAidLossCritical =
 #if EK3_FEATURE_BEACON_FUSION
-                    (imuSampleTime_ms - lastRngBcnPassTime_ms > maxLossTime_ms) &&
+                    (imuSampleTime_ms - rngBcn.lastPassTime_ms > maxLossTime_ms) &&
 #endif
                     (imuSampleTime_ms - lastPosPassTime_ms > maxLossTime_ms);
             }
@@ -425,8 +446,8 @@ void NavEKF3_core::setAidingMode()
                 // We are commencing aiding using range beacons
                 posResetSource = resetDataSource::RNGBCN;
                 GCS_SEND_TEXT(MAV_SEVERITY_INFO, "EKF3 IMU%u is using range beacons",(unsigned)imu_index);
-                GCS_SEND_TEXT(MAV_SEVERITY_INFO, "EKF3 IMU%u initial pos NE = %3.1f,%3.1f (m)",(unsigned)imu_index,(double)receiverPos.x,(double)receiverPos.y);
-                GCS_SEND_TEXT(MAV_SEVERITY_INFO, "EKF3 IMU%u initial beacon pos D offset = %3.1f (m)",(unsigned)imu_index,(double)bcnPosOffsetNED.z);
+                GCS_SEND_TEXT(MAV_SEVERITY_INFO, "EKF3 IMU%u initial pos NE = %3.1f,%3.1f (m)",(unsigned)imu_index,(double)rngBcn.receiverPos.x,(double)rngBcn.receiverPos.y);
+                GCS_SEND_TEXT(MAV_SEVERITY_INFO, "EKF3 IMU%u initial beacon pos D offset = %3.1f (m)",(unsigned)imu_index,(double)rngBcn.posOffsetNED.z);
 #endif  // EK3_FEATURE_BEACON_FUSION
 #if EK3_FEATURE_EXTERNAL_NAV
             } else if (readyToUseExtNav()) {
@@ -453,7 +474,7 @@ void NavEKF3_core::setAidingMode()
             lastPosPassTime_ms = imuSampleTime_ms;
             lastVelPassTime_ms = imuSampleTime_ms;
 #if EK3_FEATURE_BEACON_FUSION
-            lastRngBcnPassTime_ms = imuSampleTime_ms;
+            rngBcn.lastPassTime_ms = imuSampleTime_ms;
 #endif
             break;
         }
@@ -559,7 +580,7 @@ bool NavEKF3_core::readyToUseRangeBeacon(void) const
         return false;
     }
 
-    return tiltAlignComplete && yawAlignComplete && delAngBiasLearned && rngBcnAlignmentCompleted && rngBcnDataToFuse;
+    return tiltAlignComplete && yawAlignComplete && delAngBiasLearned && rngBcn.alignmentCompleted && rngBcn.dataToFuse;
 #else
     return false;
 #endif  // EK3_FEATURE_BEACON_FUSION
@@ -582,9 +603,8 @@ bool NavEKF3_core::readyToUseExtNav(void) const
 // return true if we should use the compass
 bool NavEKF3_core::use_compass(void) const
 {
-    const AP_NavEKF_Source::SourceYaw yaw_source = frontend->sources.getYawSource();
-    if ((yaw_source != AP_NavEKF_Source::SourceYaw::COMPASS) &&
-        (yaw_source != AP_NavEKF_Source::SourceYaw::GPS_COMPASS_FALLBACK)) {
+    if ((yaw_source_last != AP_NavEKF_Source::SourceYaw::COMPASS) &&
+        (yaw_source_last != AP_NavEKF_Source::SourceYaw::GPS_COMPASS_FALLBACK)) {
         // not using compass as a yaw source
         return false;
     }
@@ -597,14 +617,13 @@ bool NavEKF3_core::use_compass(void) const
 // are we using (aka fusing) a non-compass yaw?
 bool NavEKF3_core::using_noncompass_for_yaw(void) const
 {
-    const AP_NavEKF_Source::SourceYaw yaw_source = frontend->sources.getYawSource();
 #if EK3_FEATURE_EXTERNAL_NAV
-    if (yaw_source == AP_NavEKF_Source::SourceYaw::EXTNAV) {
+    if (yaw_source_last == AP_NavEKF_Source::SourceYaw::EXTNAV) {
         return ((imuSampleTime_ms - last_extnav_yaw_fusion_ms < 5000) || (imuSampleTime_ms - lastSynthYawTime_ms < 5000));
     }
 #endif
-    if (yaw_source == AP_NavEKF_Source::SourceYaw::GPS || yaw_source == AP_NavEKF_Source::SourceYaw::GPS_COMPASS_FALLBACK ||
-        yaw_source == AP_NavEKF_Source::SourceYaw::GSF || !use_compass()) {
+    if (yaw_source_last == AP_NavEKF_Source::SourceYaw::GPS || yaw_source_last == AP_NavEKF_Source::SourceYaw::GPS_COMPASS_FALLBACK ||
+        yaw_source_last == AP_NavEKF_Source::SourceYaw::GSF || !use_compass()) {
         return imuSampleTime_ms - last_gps_yaw_ms < 5000 || imuSampleTime_ms - lastSynthYawTime_ms < 5000;
     }
     return false;
@@ -614,7 +633,7 @@ bool NavEKF3_core::using_noncompass_for_yaw(void) const
 bool NavEKF3_core::using_extnav_for_yaw() const
 {
 #if EK3_FEATURE_EXTERNAL_NAV
-    if (frontend->sources.getYawSource() == AP_NavEKF_Source::SourceYaw::EXTNAV) {
+    if (yaw_source_last == AP_NavEKF_Source::SourceYaw::EXTNAV) {
         return ((imuSampleTime_ms - last_extnav_yaw_fusion_ms < 5000) || (imuSampleTime_ms - lastSynthYawTime_ms < 5000));
     }
 #endif
@@ -684,9 +703,8 @@ void NavEKF3_core::checkGyroCalStatus(void)
 {
     // check delta angle bias variances
     const ftype delAngBiasVarMax = sq(radians(0.15 * dtEkfAvg));
-    const AP_NavEKF_Source::SourceYaw yaw_source = frontend->sources.getYawSource();
-    if (!use_compass() && (yaw_source != AP_NavEKF_Source::SourceYaw::GPS) && (yaw_source != AP_NavEKF_Source::SourceYaw::GPS_COMPASS_FALLBACK) &&
-        (yaw_source != AP_NavEKF_Source::SourceYaw::EXTNAV)) {
+    if (!use_compass() && (yaw_source_last != AP_NavEKF_Source::SourceYaw::GPS) && (yaw_source_last != AP_NavEKF_Source::SourceYaw::GPS_COMPASS_FALLBACK) &&
+        (yaw_source_last != AP_NavEKF_Source::SourceYaw::EXTNAV)) {
         // rotate the variances into earth frame and evaluate horizontal terms only as yaw component is poorly observable without a yaw reference
         // which can make this check fail
         const Vector3F delAngBiasVarVec { P[10][10], P[11][11], P[12][12] };
@@ -704,7 +722,8 @@ void NavEKF3_core::checkGyroCalStatus(void)
 void  NavEKF3_core::updateFilterStatus(void)
 {
     // init return value
-    filterStatus.value = 0;
+    nav_filter_status status;
+    status.value = 0;
     bool doingBodyVelNav = (PV_AidingMode != AID_NONE) && (imuSampleTime_ms - prevBodyVelFuseTime_ms < 5000);
     bool doingFlowNav = (PV_AidingMode != AID_NONE) && flowDataValid;
     bool doingWindRelNav = (!tasTimeout && assume_zero_sideslip()) || !dragTimeout;
@@ -717,28 +736,30 @@ void  NavEKF3_core::updateFilterStatus(void)
     bool hgtNotAccurate = (frontend->sources.getPosZSource() == AP_NavEKF_Source::SourceZ::GPS) && !validOrigin;
 
     // set individual flags
-    filterStatus.flags.attitude = !stateStruct.quat.is_nan() && filterHealthy;   // attitude valid (we need a better check)
-    filterStatus.flags.horiz_vel = someHorizRefData && filterHealthy;      // horizontal velocity estimate valid
-    filterStatus.flags.vert_vel = someVertRefData && filterHealthy;        // vertical velocity estimate valid
-    filterStatus.flags.horiz_pos_rel = ((doingFlowNav && gndOffsetValid) || doingWindRelNav || doingNormalGpsNav || doingBodyVelNav) && filterHealthy;   // relative horizontal position estimate valid
-    filterStatus.flags.horiz_pos_abs = doingNormalGpsNav && filterHealthy; // absolute horizontal position estimate valid
-    filterStatus.flags.vert_pos = !hgtTimeout && filterHealthy && !hgtNotAccurate; // vertical position estimate valid
-    filterStatus.flags.terrain_alt = gndOffsetValid && filterHealthy;		// terrain height estimate valid
-    filterStatus.flags.const_pos_mode = (PV_AidingMode == AID_NONE) && filterHealthy;     // constant position mode
-    filterStatus.flags.pred_horiz_pos_rel = filterStatus.flags.horiz_pos_rel; // EKF3 enters the required mode before flight
-    filterStatus.flags.pred_horiz_pos_abs = filterStatus.flags.horiz_pos_abs; // EKF3 enters the required mode before flight
-    filterStatus.flags.takeoff_detected = takeOffDetected; // takeoff for optical flow navigation has been detected
-    filterStatus.flags.takeoff = dal.get_takeoff_expected(); // The EKF has been told to expect takeoff is in a ground effect mitigation mode and has started the EKF-GSF yaw estimator
-    filterStatus.flags.touchdown = dal.get_touchdown_expected(); // The EKF has been told to detect touchdown and is in a ground effect mitigation mode
-    filterStatus.flags.using_gps = ((imuSampleTime_ms - lastPosPassTime_ms) < 4000) && (PV_AidingMode == AID_ABSOLUTE);
-    filterStatus.flags.gps_glitching = !gpsAccuracyGood && (PV_AidingMode == AID_ABSOLUTE) && (frontend->sources.getPosXYSource() == AP_NavEKF_Source::SourceXY::GPS); // GPS glitching is affecting navigation accuracy
-    filterStatus.flags.gps_quality_good = gpsGoodToAlign;
+    status.flags.attitude = !stateStruct.quat.is_nan() && filterHealthy;   // attitude valid (we need a better check)
+    status.flags.horiz_vel = someHorizRefData && filterHealthy;      // horizontal velocity estimate valid
+    status.flags.vert_vel = someVertRefData && filterHealthy;        // vertical velocity estimate valid
+    status.flags.horiz_pos_rel = ((doingFlowNav && gndOffsetValid) || doingWindRelNav || doingNormalGpsNav || doingBodyVelNav) && filterHealthy;   // relative horizontal position estimate valid
+    status.flags.horiz_pos_abs = doingNormalGpsNav && filterHealthy; // absolute horizontal position estimate valid
+    status.flags.vert_pos = !hgtTimeout && filterHealthy && !hgtNotAccurate; // vertical position estimate valid
+    status.flags.terrain_alt = gndOffsetValid && filterHealthy;		// terrain height estimate valid
+    status.flags.const_pos_mode = (PV_AidingMode == AID_NONE) && filterHealthy;     // constant position mode
+    status.flags.pred_horiz_pos_rel = status.flags.horiz_pos_rel; // EKF3 enters the required mode before flight
+    status.flags.pred_horiz_pos_abs = status.flags.horiz_pos_abs; // EKF3 enters the required mode before flight
+    status.flags.takeoff_detected = takeOffDetected; // takeoff for optical flow navigation has been detected
+    status.flags.takeoff = dal.get_takeoff_expected(); // The EKF has been told to expect takeoff is in a ground effect mitigation mode and has started the EKF-GSF yaw estimator
+    status.flags.touchdown = dal.get_touchdown_expected(); // The EKF has been told to detect touchdown and is in a ground effect mitigation mode
+    status.flags.using_gps = ((imuSampleTime_ms - lastPosPassTime_ms) < 4000) && (PV_AidingMode == AID_ABSOLUTE);
+    status.flags.gps_glitching = !gpsAccuracyGood && (PV_AidingMode == AID_ABSOLUTE) && (frontend->sources.getPosXYSource() == AP_NavEKF_Source::SourceXY::GPS); // GPS glitching is affecting navigation accuracy
+    status.flags.gps_quality_good = gpsGoodToAlign;
     // for reporting purposes we report rejecting airspeed after 3s of not fusing when we want to fuse the data
-    filterStatus.flags.rejecting_airspeed = lastTasFailTime_ms != 0 &&
+    status.flags.rejecting_airspeed = lastTasFailTime_ms != 0 &&
                                             (imuSampleTime_ms - lastTasFailTime_ms) < 1000 &&
                                             (imuSampleTime_ms - lastTasPassTime_ms) > 3000;
-    filterStatus.flags.initalized = filterStatus.flags.initalized || healthy();
-    filterStatus.flags.dead_reckoning = (PV_AidingMode != AID_NONE) && doingWindRelNav && !((doingFlowNav && gndOffsetValid) || doingNormalGpsNav || doingBodyVelNav);
+    status.flags.initalized = status.flags.initalized || healthy();
+    status.flags.dead_reckoning = (PV_AidingMode != AID_NONE) && doingWindRelNav && !((doingFlowNav && gndOffsetValid) || doingNormalGpsNav || doingBodyVelNav);
+
+    filterStatus.value = status.value;
 }
 
 void NavEKF3_core::runYawEstimatorPrediction()

@@ -227,9 +227,6 @@ void AP_MotorsHeli_RSC::init_servo()
     // setup RSC on specified channel by default
     SRV_Channels::set_aux_channel_default(_aux_fn, _default_channel);
 
-    // set servo range
-    SRV_Channels::set_range(SRV_Channels::get_motor_function(_aux_fn), 1000);
-
 }
 
 // set_power_output_range
@@ -278,7 +275,7 @@ void AP_MotorsHeli_RSC::output(RotorControlState state)
     }
 
     switch (state) {
-    case ROTOR_CONTROL_STOP:
+    case RotorControlState::STOP:
         // set rotor ramp to decrease speed to zero, this happens instantly inside update_rotor_ramp()
         update_rotor_ramp(0.0f, dt);
 
@@ -299,7 +296,7 @@ void AP_MotorsHeli_RSC::output(RotorControlState state)
         _idle_throttle = get_idle_output();
         break;
 
-    case ROTOR_CONTROL_IDLE:
+    case RotorControlState::IDLE:
         // set rotor ramp to decrease speed to zero
         update_rotor_ramp(0.0f, dt);
 
@@ -316,12 +313,12 @@ void AP_MotorsHeli_RSC::output(RotorControlState state)
                 _idle_throttle = constrain_float( get_arot_idle_output(), 0.0f, 0.4f);
             }
             if (!_autorotating) {
-                gcs().send_text(MAV_SEVERITY_CRITICAL, "Autorotation");
+                GCS_SEND_TEXT(MAV_SEVERITY_CRITICAL, "Autorotation");
                 _autorotating =true;
             }
         } else {
             if (_autorotating) {
-                gcs().send_text(MAV_SEVERITY_CRITICAL, "Autorotation Stopped");
+                GCS_SEND_TEXT(MAV_SEVERITY_CRITICAL, "Autorotation Stopped");
                 _autorotating =false;
             }
             // set rotor control speed to idle speed parameter, this happens instantly and ignores ramping
@@ -329,7 +326,7 @@ void AP_MotorsHeli_RSC::output(RotorControlState state)
                 _idle_throttle += 0.001f;
                 if (_control_output >= 1.0f) {
                     _idle_throttle = get_idle_output();
-                    gcs().send_text(MAV_SEVERITY_INFO, "Turbine startup");
+                    GCS_SEND_TEXT(MAV_SEVERITY_INFO, "Turbine startup");
                     _starting = false;
                 }
             } else {
@@ -351,7 +348,7 @@ void AP_MotorsHeli_RSC::output(RotorControlState state)
         _control_output = _idle_throttle;
         break;
 
-    case ROTOR_CONTROL_ACTIVE:
+    case RotorControlState::ACTIVE:
         // set main rotor ramp to increase to full speed
         update_rotor_ramp(1.0f, dt);
 
@@ -411,7 +408,7 @@ void AP_MotorsHeli_RSC::update_rotor_ramp(float rotor_ramp_input, float dt)
     if (_rotor_ramp_output < rotor_ramp_input) {
         if (_use_bailout_ramp) {
             if (!_bailing_out) {
-                gcs().send_text(MAV_SEVERITY_CRITICAL, "bailing_out");
+                GCS_SEND_TEXT(MAV_SEVERITY_CRITICAL, "bailing_out");
                 _bailing_out = true;
                 if (_control_mode == ROTOR_CONTROL_MODE_AUTOTHROTTLE) {_gov_bailing_out = true;}
             }
@@ -461,7 +458,7 @@ void AP_MotorsHeli_RSC::update_rotor_runup(float dt)
     }
     // if in autorotation, don't let rotor_runup_output go less than critical speed to keep
     // runup complete flag from being set to false
-    if (_autorotating && _rotor_runup_output < get_critical_speed()) {
+    if (_autorotating && !rotor_speed_above_critical()) {
         _rotor_runup_output = get_critical_speed();
     }
 
@@ -479,7 +476,7 @@ void AP_MotorsHeli_RSC::update_rotor_runup(float dt)
     }
     // if rotor speed is less than critical speed, then run-up is not complete
     // this will prevent the case where the target rotor speed is less than critical speed
-    if (_runup_complete && (get_rotor_speed() < get_critical_speed())) {
+    if (_runup_complete && !rotor_speed_above_critical()) {
         _runup_complete = false;
     }
     // if rotor estimated speed is zero, then spooldown has been completed
@@ -508,6 +505,15 @@ void AP_MotorsHeli_RSC::write_rsc(float servo_out)
     } else {
         SRV_Channels::set_output_scaled(_aux_fn, servo_out * 1000);
     }
+}
+
+// Return mask of output channels which the RSC is outputting on
+uint32_t AP_MotorsHeli_RSC::get_output_mask() const
+{
+    if (_control_mode == ROTOR_CONTROL_MODE_DISABLED) {
+        return 0;
+    }
+    return SRV_Channels::get_output_channel_mask(_aux_fn);
 }
 
 // calculate_throttlecurve - uses throttle curve and collective input to determine throttle setting
@@ -557,9 +563,9 @@ void AP_MotorsHeli_RSC::autothrottle_run()
                 governor_reset();
                 _governor_fault = true;
                 if (_rotor_rpm >= (_governor_rpm + _governor_range)) {
-                    gcs().send_text(MAV_SEVERITY_WARNING, "Governor Fault: Rotor Overspeed");
+                    GCS_SEND_TEXT(MAV_SEVERITY_WARNING, "Governor Fault: Rotor Overspeed");
                 } else {
-                    gcs().send_text(MAV_SEVERITY_WARNING, "Governor Fault: Rotor Underspeed");
+                    GCS_SEND_TEXT(MAV_SEVERITY_WARNING, "Governor Fault: Rotor Underspeed");
                 }
             }
         } else {
@@ -571,7 +577,7 @@ void AP_MotorsHeli_RSC::autothrottle_run()
         if (_rotor_rpm > (_governor_rpm + _governor_range) && !_gov_bailing_out) {
             _governor_fault = true;
             governor_reset();
-            gcs().send_text(MAV_SEVERITY_WARNING, "Governor Fault: Rotor Overspeed");
+            GCS_SEND_TEXT(MAV_SEVERITY_WARNING, "Governor Fault: Rotor Overspeed");
             _governor_output = 0.0f;
 
         // when performing power recovery from autorotation, this waits for user to load rotor in order to 
@@ -588,7 +594,7 @@ void AP_MotorsHeli_RSC::autothrottle_run()
                 _governor_engage = true;
                 _autothrottle = true;
                 _gov_bailing_out = false;
-                gcs().send_text(MAV_SEVERITY_NOTICE, "Governor Engaged");
+                GCS_SEND_TEXT(MAV_SEVERITY_NOTICE, "Governor Engaged");
             }
         } else {
             // temporary use of throttle curve and ramp timer to accelerate rotor to governor min torque rise speed

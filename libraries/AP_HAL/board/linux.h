@@ -3,7 +3,6 @@
 #define HAL_BOARD_NAME "Linux"
 #define HAL_CPU_CLASS HAL_CPU_CLASS_1000
 #define HAL_MEM_CLASS HAL_MEM_CLASS_1000
-#define HAL_OS_POSIX_IO 1
 #define HAL_OS_SOCKETS 1
 #define HAL_STORAGE_SIZE            16384
 #define HAL_STORAGE_SIZE_AVAILABLE  HAL_STORAGE_SIZE
@@ -82,7 +81,7 @@
 #elif CONFIG_HAL_BOARD_SUBTYPE == HAL_BOARD_SUBTYPE_LINUX_VNAV
     // linux SBC with VectorNav AHRS
     #define HAL_EXTERNAL_AHRS_DEFAULT 1
-    #define HAL_SERIAL3_PROTOCOL 36
+    #define DEFAULT_SERIAL3_PROTOCOL 36
     #define HAL_AIRSPEED_TYPE_DEFAULT 0
     #define HAL_GPS_TYPE_DEFAULT 21
     #define HAL_AHRS_EKF_TYPE_DEFAULT 11
@@ -287,7 +286,22 @@
     #define HAL_BARO_PROBE_LIST PROBE_BARO_SPI(MS56XX, "ms5611")
     #define HAL_MAG_PROBE_LIST PROBE_MAG_SPI(LIS3MDL, lis3mdl, false, ROTATION_ROLL_180_YAW_90)
     #define HAL_OPTFLOW_PX4FLOW_I2C_BUS 0
-
+#elif CONFIG_HAL_BOARD_SUBTYPE == HAL_BOARD_SUBTYPE_LINUX_CANZERO
+    #define HAL_INS_PROBE_LIST PROBE_IMU_SPI(Invensense, "mpu9250", ROTATION_NONE)
+    #define HAL_BARO_PROBE_LIST PROBE_BARO_SPI(MS56XX, "ms5611")
+    #define HAL_MAG_PROBE_LIST PROBE_MAG_IMU(AK8963, mpu9250, 0, ROTATION_NONE)
+    #define HAL_PROBE_EXTERNAL_I2C_COMPASSES
+    #define HAL_NUM_CAN_IFACES 1
+    #define HAL_CAN_DRIVER_DEFAULT 1
+    #define HAL_GPIO_A_LED_PIN        22
+    #define HAL_GPIO_B_LED_PIN        27
+    #define HAL_GPIO_C_LED_PIN        6
+    #define HAL_GPIO_LED_ON           0
+    #define HAL_GPIO_LED_OFF          1
+    #define HAL_BOARD_LOG_DIRECTORY "/home/pi/ardupilot/logs"
+    #define HAL_BOARD_TERRAIN_DIRECTORY "/home/pi/ardupilot/terrain"
+    #define HAL_BOARD_STORAGE_DIRECTORY "/home/pi/ardupilot"
+    #define HAL_DEFAULT_INS_FAST_SAMPLE 0
 #elif CONFIG_HAL_BOARD_SUBTYPE == HAL_BOARD_SUBTYPE_LINUX_OBAL_V1
     
     //#define HAL_BARO_ALLOW_INIT_NO_BARO
@@ -380,10 +394,12 @@
     #define HAL_LINUX_I2C_EXTERNAL_BUS_MASK 0xFFFF
 #endif
 
+// only include if compiling C++ code
+#ifdef __cplusplus
 #include <AP_HAL_Linux/Semaphores.h>
 #define HAL_Semaphore Linux::Semaphore
-#include <AP_HAL/EventHandle.h>
-#define HAL_EventHandle AP_HAL::EventHandle
+#define HAL_BinarySemaphore Linux::BinarySemaphore
+#endif
 
 #ifndef HAL_HAVE_HARDWARE_DOUBLE
 #define HAL_HAVE_HARDWARE_DOUBLE 1
@@ -395,4 +411,11 @@
 
 #ifndef HAL_GYROFFT_ENABLED
 #define HAL_GYROFFT_ENABLED 0
+#endif
+
+#if CONFIG_HAL_BOARD_SUBTYPE == HAL_BOARD_SUBTYPE_LINUX_NONE
+// we can use virtual CAN on native builds
+#define HAL_LINUX_USE_VIRTUAL_CAN 1
+#else
+#define HAL_LINUX_USE_VIRTUAL_CAN 0
 #endif

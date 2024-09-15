@@ -39,6 +39,11 @@ public:
     bool run_debug_shell(AP_HAL::BetterStream *stream) override { return false; }
     uint32_t available_memory() override;
 
+    // get path to custom defaults file for AP_Param
+    const char* get_custom_defaults_file() const override {
+        return "@ROMFS/defaults.parm";
+    }
+
     // Special Allocation Routines
     void *malloc_type(size_t size, AP_HAL::Util::Memory_Type mem_type) override;
     void free_type(void *ptr, size_t size, AP_HAL::Util::Memory_Type mem_type) override;
@@ -89,6 +94,7 @@ public:
 #if HAL_ENABLE_SAVE_PERSISTENT_PARAMS
     // save/load key persistent parameters in bootloader sector
     bool load_persistent_params(ExpandingString &str) const override;
+    bool get_persistent_param_by_name(const char *name, char* value, size_t& len) const override;
 #endif
 #if HAL_UART_STATS_ENABLED
     // request information on uart I/O
@@ -126,7 +132,7 @@ private:
       get system clock in UTC microseconds
      */
     uint64_t get_hw_rtc() const override;
-#if !defined(HAL_NO_FLASH_SUPPORT) && !defined(HAL_NO_ROMFS_SUPPORT)
+#if AP_BOOTLOADER_FLASHING_ENABLED
     FlashBootloader flash_bootloader() override;
 #endif
 

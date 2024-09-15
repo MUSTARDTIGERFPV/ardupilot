@@ -13,6 +13,10 @@
    along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include "AP_Follow_config.h"
+
+#if AP_FOLLOW_ENABLED
+
 #include <AP_HAL/AP_HAL.h>
 #include "AP_Follow.h"
 #include <ctype.h>
@@ -26,7 +30,7 @@
 extern const AP_HAL::HAL& hal;
 
 #define AP_FOLLOW_TIMEOUT_MS    3000    // position estimate timeout after 1 second
-#define AP_FOLLOW_SYSID_TIMEOUT_MS 10000 // forget sysid we are following if we haave not heard from them in 10 seconds
+#define AP_FOLLOW_SYSID_TIMEOUT_MS 10000 // forget sysid we are following if we have not heard from them in 10 seconds
 
 #define AP_FOLLOW_OFFSET_TYPE_NED       0   // offsets are in north-east-down frame
 #define AP_FOLLOW_OFFSET_TYPE_RELATIVE  1   // offsets are relative to lead vehicle's heading
@@ -129,6 +133,13 @@ const AP_Param::GroupInfo AP_Follow::var_info[] = {
     // @User: Standard
     AP_GROUPINFO("_ALT_TYPE", 10, AP_Follow, _alt_type, AP_FOLLOW_ALT_TYPE_DEFAULT),
 #endif
+
+    // @Param: _OPTIONS
+    // @DisplayName: Follow options
+    // @Description: Follow options bitmask
+    // @Values: 0:None,1: Mount Follows lead vehicle on mode enter
+    // @User: Standard
+    AP_GROUPINFO("_OPTIONS", 11, AP_Follow, _options, 0),
 
     AP_GROUPEND
 };
@@ -384,8 +395,9 @@ void AP_Follow::handle_msg(const mavlink_message_t &msg)
         break;
     }
     }
-    
+
     if (updated) {
+#if HAL_LOGGING_ENABLED
         // get estimated location and velocity
         Location loc_estimate{};
         Vector3f vel_estimate;
@@ -420,6 +432,7 @@ void AP_Follow::handle_msg(const mavlink_message_t &msg)
                                                loc_estimate.lng,
                                                loc_estimate.alt
                                                );
+#endif
     }
 }
 
@@ -527,3 +540,5 @@ AP_Follow &follow()
 }
 
 }
+
+#endif  // AP_FOLLOW_ENABLED

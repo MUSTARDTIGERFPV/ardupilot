@@ -3,6 +3,7 @@
 #include <AP_HAL/AP_HAL.h>
 #include <AP_Common/Bitmask.h>
 #include <AP_Math/AP_Math.h>
+#include <AP_Logger/AP_Logger_config.h>
 
 // definitions and macros
 #define SMARTRTL_ACCURACY_DEFAULT        2.0f   // default _ACCURACY parameter value.  Points will be no closer than this distance (in meters) together.
@@ -39,6 +40,9 @@ public:
 
     // get a point on the path
     const Vector3f& get_point(uint16_t index) const { return _path[index]; }
+
+    // add point to end of path. returns true on success, false on failure (due to failure to take the semaphore)
+    bool add_point(const Vector3f& point);
 
     // get next point on the path to home, returns true on success
     bool pop_point(Vector3f& point);
@@ -108,9 +112,6 @@ private:
         IgnorePilotYaw    = (1U << 2),
     };
 
-    // add point to end of path
-    bool add_point(const Vector3f& point);
-
     // routine cleanup attempts to remove 10 points (see SMARTRTL_CLEANUP_POINT_MIN definition) by simplification or loop pruning
     void routine_cleanup(uint16_t path_points_count, uint16_t path_points_complete_limit);
 
@@ -172,8 +173,12 @@ private:
     // de-activate SmartRTL, send warning to GCS and logger
     void deactivate(SRTL_Actions action, const char *reason);
 
+#if HAL_LOGGING_ENABLED
     // logging
     void log_action(SRTL_Actions action, const Vector3f &point = Vector3f()) const;
+#else
+    void log_action(SRTL_Actions action, const Vector3f &point = Vector3f()) const {}
+#endif
 
     // parameters
     AP_Float _accuracy;

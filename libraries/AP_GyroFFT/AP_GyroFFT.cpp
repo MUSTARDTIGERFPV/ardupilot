@@ -273,7 +273,7 @@ void AP_GyroFFT::init(uint16_t loop_rate_hz)
 
     // check for harmonics across all harmonic notch filters
     // note that we only allow one harmonic notch filter linked to the FFT code
-    uint8_t harmonics = 0;
+    uint32_t harmonics = 0;
     uint8_t num_notches = 0;
     for (auto &notch : _ins->harmonic_notches) {
         if (notch.params.enabled()) {
@@ -362,8 +362,8 @@ void AP_GyroFFT::init(uint16_t loop_rate_hz)
     }
 }
 
-// sample the gyros either by using a gyro window sampled at the gyro rate or making invdividual samples
-// called from fast_loop thread - this function does not take out a sempahore to avoid waiting on the FFT thread
+// sample the gyros either by using a gyro window sampled at the gyro rate or making individual samples
+// called from fast_loop thread - this function does not take out a semaphore to avoid waiting on the FFT thread
 void AP_GyroFFT::sample_gyros()
 {
     if (!analysis_enabled()) {
@@ -473,7 +473,7 @@ uint16_t AP_GyroFFT::run_cycle()
     _thread_state._last_output_us[_update_axis] = AP_HAL::micros();
     _output_cycle_micros = _thread_state._last_output_us[_update_axis] - now;
 
-#if AP_SIM_ENABLED
+#if AP_SIM_ENABLED && HAL_LOGGING_ENABLED
     // extra logging when running simulations
     AP::logger().WriteStreaming(
         "FTN3",
@@ -966,6 +966,8 @@ float AP_GyroFFT::calculate_weighted_freq_hz(const Vector3f& energy, const Vecto
 // @Field: FHZ: FFT health, Z-axis
 // @Field: Tc: FFT cycle time
 
+#if HAL_LOGGING_ENABLED
+
 // log gyro fft messages
 void AP_GyroFFT::write_log_messages()
 {
@@ -1047,6 +1049,8 @@ void AP_GyroFFT::log_noise_peak(uint8_t id, FrequencyPeak peak) const
         get_center_freq_energy(peak).y,
         get_center_freq_energy(peak).z);
 }
+
+#endif
 
 // return an average noise bandwidth weighted by bin energy
 // called from main thread

@@ -29,6 +29,10 @@
 
 #include "AP_InertialSensor.h"
 
+#ifndef HAL_INS_HIGHRES_SAMPLE
+#define HAL_INS_HIGHRES_SAMPLE 0
+#endif
+
 class AuxiliaryBus;
 class AP_Logger;
 
@@ -124,6 +128,7 @@ public:
         DEVTYPE_INS_BMI085   = 0x39,
         DEVTYPE_INS_ICM42670 = 0x3A,
         DEVTYPE_INS_ICM45686 = 0x3B,
+        DEVTYPE_INS_SCHA63T  = 0x3C,
     };
 
 protected:
@@ -283,8 +288,13 @@ protected:
     }
 
     // should fast sampling be enabled on this IMU?
-    bool enable_fast_sampling(uint8_t instance) {
+    bool enable_fast_sampling(uint8_t instance) const {
         return (_imu._fast_sampling_mask & (1U<<instance)) != 0;
+    }
+
+    // should highres sampling be enabled on this IMU?
+    bool enable_highres_sampling(uint8_t instance) const {
+        return (HAL_INS_HIGHRES_SAMPLE & (1U<<instance)) != 0;
     }
 
     // if fast sampling is enabled, the rate to use in kHz
@@ -302,7 +312,7 @@ protected:
     */
     void notify_accel_fifo_reset(uint8_t instance) __RAMFUNC__;
     void notify_gyro_fifo_reset(uint8_t instance) __RAMFUNC__;
-    
+
     // log an unexpected change in a register for an IMU
     void log_register_change(uint32_t bus_id, const AP_HAL::Device::checkreg &reg) __RAMFUNC__;
 
@@ -314,10 +324,12 @@ private:
 
     bool should_log_imu_raw() const ;
     void log_accel_raw(uint8_t instance, const uint64_t sample_us, const Vector3f &accel) __RAMFUNC__;
-    void log_gyro_raw(uint8_t instance, const uint64_t sample_us, const Vector3f &gryo) __RAMFUNC__;
+    void log_gyro_raw(uint8_t instance, const uint64_t sample_us, const Vector3f &raw_gyro, const Vector3f &filtered_gyro) __RAMFUNC__;
 
     // logging
     void Write_ACC(const uint8_t instance, const uint64_t sample_us, const Vector3f &accel) const __RAMFUNC__; // Write ACC data packet: raw accel data
-    void Write_GYR(const uint8_t instance, const uint64_t sample_us, const Vector3f &gyro) const __RAMFUNC__;  // Write GYR data packet: raw gyro data
+
+protected:
+    void Write_GYR(const uint8_t instance, const uint64_t sample_us, const Vector3f &gyro, bool use_sample_timestamp=false) const __RAMFUNC__;  // Write GYR data packet: raw gyro data
 
 };

@@ -14,6 +14,7 @@
 #endif
 #include <AP_RCProtocol/AP_RCProtocol.h>
 #ifdef UBSAN_ENABLED
+#include <fcntl.h>
 #include <sanitizer/asan_interface.h>
 #endif
 
@@ -61,6 +62,7 @@ void __ubsan_get_current_report_data(const char **OutIssueKind,
                                      const char **OutFilename, unsigned *OutLine,
                                      unsigned *OutCol, char **OutMemoryAddr);
 
+void __ubsan_on_report();
 void __ubsan_on_report()
 {
     static int fd = -1;
@@ -276,10 +278,8 @@ void Scheduler::_run_io_procs()
     }
     hal.storage->_timer_tick();
 
-#ifndef HAL_BUILD_AP_PERIPH
     // in lieu of a thread-per-bus:
     ((HALSITL::I2CDeviceManager*)(hal.i2c_mgr))->_timer_tick();
-#endif
 
 #if SITL_STACK_CHECKING_ENABLED
     check_thread_stacks();
@@ -379,6 +379,11 @@ bool Scheduler::thread_create(AP_HAL::MemberProc proc, const char *name, uint32_
     if (pthread_create(&thread, &a->attr, thread_create_trampoline, a) != 0) {
         goto failed;
     }
+
+#if !defined(__APPLE__)
+    pthread_setname_np(thread, name);
+#endif
+
     a->next = threads;
     threads = a;
     return true;

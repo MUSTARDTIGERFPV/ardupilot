@@ -8,6 +8,7 @@
 #include <AP_Vehicle/ModeReason.h>
 #include "quadplane.h"
 #include <AP_AHRS/AP_AHRS.h>
+#include <AP_Mission/AP_Mission.h>
 
 class AC_PosControl;
 class AC_AttitudeControl_Multi;
@@ -65,7 +66,7 @@ public:
     void exit();
 
     // run controllers specific to this mode
-    virtual void run() {};
+    virtual void run();
 
     // returns a unique number specific to this mode
     virtual Number mode_number() const = 0;
@@ -78,6 +79,9 @@ public:
 
     // returns true if the vehicle can be armed in this mode
     bool pre_arm_checks(size_t buflen, char *buffer) const;
+
+    // Reset rate and steering controllers
+    void reset_controllers();
 
     //
     // methods that sub classes should override to affect movement of the vehicle in this mode
@@ -125,6 +129,18 @@ public:
     // handle a guided target request from GCS
     virtual bool handle_guided_request(Location target_loc) { return false; }
 
+    // true if is landing 
+    virtual bool is_landing() const { return false; }
+
+    // true if is taking 
+    virtual bool is_taking_off() const;
+
+    // true if throttle min/max limits should be applied
+    bool use_throttle_limits() const;
+
+    // true if voltage correction should be applied to throttle
+    bool use_battery_compensation() const;
+
 protected:
 
     // subclasses override this to perform checks before entering the mode
@@ -135,6 +151,9 @@ protected:
 
     // mode specific pre-arm checks
     virtual bool _pre_arm_checks(size_t buflen, char *buffer) const;
+
+    // Helper to output to both k_rudder and k_steering servo functions
+    void output_rudder_and_steering(float val);
 
 #if HAL_QUADPLANE_ENABLED
     // References for convenience, used by QModes
@@ -206,11 +225,27 @@ public:
     
     bool mode_allows_autotuning() const override { return true; }
 
+    bool is_landing() const override;
+
+    void do_nav_delay(const AP_Mission::Mission_Command& cmd);
+    bool verify_nav_delay(const AP_Mission::Mission_Command& cmd);
+
+    void run() override;
+
 protected:
 
     bool _enter() override;
     void _exit() override;
     bool _pre_arm_checks(size_t buflen, char *buffer) const override;
+
+private:
+
+    // Delay the next navigation command
+    struct {
+        uint32_t time_max_ms;
+        uint32_t time_start_ms;
+    } nav_delay;
+
 };
 
 
@@ -355,6 +390,8 @@ public:
 
     // methods that affect movement of the vehicle in this mode
     void update() override;
+
+    void run() override;
 };
 
 
@@ -398,6 +435,12 @@ public:
 
     // methods that affect movement of the vehicle in this mode
     void update() override;
+
+    void run() override;
+
+private:
+    void stabilize_stick_mixing_direct();
+
 };
 
 class ModeTraining : public Mode
@@ -589,6 +632,8 @@ class ModeQLoiter : public Mode
 {
 friend class QuadPlane;
 friend class ModeQLand;
+friend class Plane;
+
 public:
 
     Number mode_number() const override { return Number::QLOITER; }
@@ -606,12 +651,12 @@ public:
 protected:
 
     bool _enter() override;
+    uint32_t last_target_loc_set_ms;
 };
 
 class ModeQLand : public Mode
 {
 public:
-
     Number mode_number() const override { return Number::QLAND; }
     const char *name() const override { return "QLAND"; }
     const char *name4() const override { return "QLND"; }
@@ -627,7 +672,6 @@ protected:
 
     bool _enter() override;
     bool _pre_arm_checks(size_t buflen, char *buffer) const override { return false; }
-
 };
 
 class ModeQRTL : public Mode

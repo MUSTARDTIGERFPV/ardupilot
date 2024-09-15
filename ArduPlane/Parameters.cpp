@@ -23,6 +23,7 @@ const AP_Param::Info Plane::var_info[] = {
     // @DisplayName: Ground station MAVLink system ID
     // @Description: The identifier of the ground station in the MAVLink protocol. Don't change this unless you also modify the ground station to match.
     // @Range: 1 255
+    // @Increment: 1
     // @User: Advanced
     GSCALAR(sysid_my_gcs,           "SYSID_MYGCS",    255),
 
@@ -37,6 +38,14 @@ const AP_Param::Info Plane::var_info[] = {
     // @Increment: 1
     // @User: Standard
     ASCALAR(autotune_level, "AUTOTUNE_LEVEL",  6),
+
+    // @Param: AUTOTUNE_OPTIONS
+    // @DisplayName: Autotune options bitmask
+    // @Description: Fixed Wing Autotune specific options. Useful on QuadPlanes with higher INS_GYRO_FILTER settings to prevent these filter values from being set too agressively during Fixed Wing Autotune.
+    // @Bitmask: 0: Disable FLTD update by Autotune
+    // @Bitmask: 1: Disable FLTT update by Autotune
+    // @User: Advanced
+    ASCALAR(autotune_options, "AUTOTUNE_OPTIONS",  0),
 
     // @Param: TELEM_DELAY
     // @DisplayName: Telemetry startup delay 
@@ -151,7 +160,7 @@ const AP_Param::Info Plane::var_info[] = {
 
     // @Param: TKOFF_TDRAG_SPD1
     // @DisplayName: Takeoff tail dragger speed1
-    // @Description: This parameter sets the airspeed at which to stop holding the tail down and transition to rudder control of steering on the ground. When TKOFF_TDRAG_SPD1 is reached the pitch of the aircraft will be held level until TKOFF_ROTATE_SPD is reached, at which point the takeoff pitch specified in the mission will be used to "rotate" the pitch for takeoff climb. Set TKOFF_TDRAG_SPD1 to zero to go straight to rotation. This should be set to zero for hand launch and catapult launch. It should also be set to zero for tricycle undercarriages unless you are using the method above to genetly hold the nose wheel down. For tail dragger aircraft it should be set just below the stall speed.
+    // @Description: This parameter sets the airspeed at which to stop holding the tail down and transition to rudder control of steering on the ground. When TKOFF_TDRAG_SPD1 is reached the pitch of the aircraft will be held level until TKOFF_ROTATE_SPD is reached, at which point the takeoff pitch specified in the mission will be used to "rotate" the pitch for takeoff climb. Set TKOFF_TDRAG_SPD1 to zero to go straight to rotation. This should be set to zero for hand launch and catapult launch. It should also be set to zero for tricycle undercarriages unless you are using the method above to gently hold the nose wheel down. For tail dragger aircraft it should be set just below the stall speed.
     // @Units: m/s
     // @Range: 0 30
     // @Increment: 0.1
@@ -258,28 +267,35 @@ const AP_Param::Info Plane::var_info[] = {
     
     // @Param: STALL_PREVENTION
     // @DisplayName: Enable stall prevention
-    // @Description: Enables roll limits at low airspeed in roll limiting flight modes. Roll limits based on aerodynamic load factor in turns and scale on ARSPD_FBW_MIN that must be set correctly. Without airspeed sensor, uses synthetic airspeed from wind speed estimate that may both be inaccurate.
+    // @Description: Enables roll limits at low airspeed in roll limiting flight modes. Roll limits based on aerodynamic load factor in turns and scale on AIRSPEED_MIN that must be set correctly. Without airspeed sensor, uses synthetic airspeed from wind speed estimate that may both be inaccurate.
     // @Values: 0:Disabled,1:Enabled
     // @User: Standard
     ASCALAR(stall_prevention, "STALL_PREVENTION",  1),
 
-    // @Param: ARSPD_FBW_MIN
+    // @Param: AIRSPEED_CRUISE
+    // @DisplayName: Target cruise airspeed
+    // @Description: Target cruise airspeed in m/s in automatic throttle modes. Value is as an indicated (calibrated/apparent) airspeed.
+    // @Units: m/s
+    // @User: Standard
+    ASCALAR(airspeed_cruise,     "AIRSPEED_CRUISE",  AIRSPEED_CRUISE),
+
+    // @Param: AIRSPEED_MIN
     // @DisplayName: Minimum Airspeed
     // @Description: Minimum airspeed demanded in automatic throttle modes. Should be set to 20% higher than level flight stall speed.
     // @Units: m/s
     // @Range: 5 100
     // @Increment: 1
     // @User: Standard
-    ASCALAR(airspeed_min, "ARSPD_FBW_MIN",  AIRSPEED_FBW_MIN),
+    ASCALAR(airspeed_min, "AIRSPEED_MIN",  AIRSPEED_FBW_MIN),
 
-    // @Param: ARSPD_FBW_MAX
+    // @Param: AIRSPEED_MAX
     // @DisplayName: Maximum Airspeed
-    // @Description: Maximum airspeed demanded in automatic throttle modes. Should be set slightly less than level flight speed at THR_MAX and also at least 50% above ARSPD_FBW_MIN to allow for accurate TECS altitude control.
+    // @Description: Maximum airspeed demanded in automatic throttle modes. Should be set slightly less than level flight speed at THR_MAX and also at least 50% above AIRSPEED_MIN to allow for accurate TECS altitude control.
     // @Units: m/s
     // @Range: 5 100
     // @Increment: 1
     // @User: Standard
-    ASCALAR(airspeed_max, "ARSPD_FBW_MAX",  AIRSPEED_FBW_MAX),
+    ASCALAR(airspeed_max, "AIRSPEED_MAX",  AIRSPEED_FBW_MAX),
 
     // @Param: FBWB_ELEV_REV
     // @DisplayName: Fly By Wire elevator reverse
@@ -392,7 +408,7 @@ const AP_Param::Info Plane::var_info[] = {
 
     // @Param: TRIM_THROTTLE
     // @DisplayName: Throttle cruise percentage
-    // @Description: Target percentage of throttle to apply for flight in automatic throttle modes and throttle percentage that maintains TRIM_ARSPD_CM. Caution: low battery voltages at the end of flights may require higher throttle to maintain airspeed.
+    // @Description: Target percentage of throttle to apply for flight in automatic throttle modes and throttle percentage that maintains AIRSPEED_CRUISE. Caution: low battery voltages at the end of flights may require higher throttle to maintain airspeed.
     // @Units: %
     // @Range: 0 100
     // @Increment: 1
@@ -401,14 +417,14 @@ const AP_Param::Info Plane::var_info[] = {
 
     // @Param: THROTTLE_NUDGE
     // @DisplayName: Throttle nudge enable
-    // @Description: When enabled, this uses the throttle input in auto-throttle modes to 'nudge' the throttle or airspeed to higher or lower values. When you have an airspeed sensor the nudge affects the target airspeed, so that throttle inputs above 50% will increase the target airspeed from TRIM_ARSPD_CM up to a maximum of ARSPD_FBW_MAX. When no airspeed sensor is enabled the throttle nudge will push up the target throttle for throttle inputs above 50%.
+    // @Description: When enabled, this uses the throttle input in auto-throttle modes to 'nudge' the throttle or airspeed to higher or lower values. When you have an airspeed sensor the nudge affects the target airspeed, so that throttle inputs above 50% will increase the target airspeed from AIRSPEED_CRUISE up to a maximum of AIRSPEED_MAX. When no airspeed sensor is enabled the throttle nudge will push up the target throttle for throttle inputs above 50%.
     // @Values: 0:Disabled,1:Enabled
     // @User: Standard
     GSCALAR(throttle_nudge,         "THROTTLE_NUDGE",  1),
 
     // @Param: FS_SHORT_ACTN
     // @DisplayName: Short failsafe action
-    // @Description: The action to take on a short (FS_SHORT_TIMEOUT) failsafe event. A short failsafe event can be triggered either by loss of RC control (see THR_FS_VALUE) or by loss of GCS control (see FS_GCS_ENABL). If in CIRCLE or RTL mode this parameter is ignored. A short failsafe event in stabilization and manual modes will cause a change to CIRCLE mode if FS_SHORT_ACTN is 0 or 1, a change to FBWA mode with zero throttle if FS_SHORT_ACTN is 2, and a change to FBWB mode if FS_SHORT_ACTN is 4. In all other modes (AUTO, GUIDED and LOITER) a short failsafe event will cause no mode change if FS_SHORT_ACTN is set to 0, will cause a change to CIRCLE mode if set to 1, will change to FBWA mode with zero throttle if set to 2, or will change to FBWB if set to 4. Please see the documentation for FS_LONG_ACTN for the behaviour after FS_LONG_TIMEOUT seconds of failsafe.
+    // @Description: The action to take on a short (FS_SHORT_TIMEOUT) failsafe event. A short failsafe event can be triggered either by loss of RC control (see THR_FS_VALUE) or by loss of GCS control (see FS_GCS_ENABL). If in CIRCLE or RTL mode this parameter is ignored. A short failsafe event in stabilization and manual modes will cause a change to CIRCLE mode if FS_SHORT_ACTN is 0 or 1, a change to FBWA mode with zero throttle if FS_SHORT_ACTN is 2, and a change to FBWB mode if FS_SHORT_ACTN is 4. In all other modes (AUTO, GUIDED and LOITER) a short failsafe event will cause no mode change if FS_SHORT_ACTN is set to 0, will cause a change to CIRCLE mode if set to 1, will change to FBWA mode with zero throttle if set to 2, or will change to FBWB if set to 4. Please see the documentation for FS_LONG_ACTN for the behaviour after FS_LONG_TIMEOUT seconds of failsafe. This parameter only applies to failsafes during fixed wing modes. Quadplane modes will switch to QLAND unless Q_OPTIONS bit 5(QRTL) or 20(RTL) are set.
     // @Values: 0:CIRCLE/no change(if already in AUTO|GUIDED|LOITER),1:CIRCLE,2:FBWA at zero throttle,3:Disable,4:FBWB
     // @User: Standard
     GSCALAR(fs_action_short,        "FS_SHORT_ACTN",  FS_ACTION_SHORT_BESTGUESS),
@@ -424,8 +440,8 @@ const AP_Param::Info Plane::var_info[] = {
 
     // @Param: FS_LONG_ACTN
     // @DisplayName: Long failsafe action
-    // @Description: The action to take on a long (FS_LONG_TIMEOUT seconds) failsafe event. If the aircraft was in a stabilization or manual mode when failsafe started and a long failsafe occurs then it will change to RTL mode if FS_LONG_ACTN is 0 or 1, and will change to FBWA if FS_LONG_ACTN is set to 2. If the aircraft was in an auto mode (such as AUTO or GUIDED) when the failsafe started then it will continue in the auto mode if FS_LONG_ACTN is set to 0, will change to RTL mode if FS_LONG_ACTN is set to 1 and will change to FBWA mode if FS_LONG_ACTN is set to 2. If FS_LONG_ACTION is set to 3, the parachute will be deployed (make sure the chute is configured and enabled). 
-    // @Values: 0:Continue,1:ReturnToLaunch,2:Glide,3:Deploy Parachute
+    // @Description: The action to take on a long (FS_LONG_TIMEOUT seconds) failsafe event. If the aircraft was in a stabilization or manual mode when failsafe started and a long failsafe occurs then it will change to RTL mode if FS_LONG_ACTN is 0 or 1, and will change to FBWA if FS_LONG_ACTN is set to 2. If the aircraft was in an auto mode (such as AUTO or GUIDED) when the failsafe started then it will continue in the auto mode if FS_LONG_ACTN is set to 0, will change to RTL mode if FS_LONG_ACTN is set to 1 and will change to FBWA mode if FS_LONG_ACTN is set to 2. If FS_LONG_ACTN is set to 3, the parachute will be deployed (make sure the chute is configured and enabled). If FS_LONG_ACTN is set to 4 the aircraft will switch to mode AUTO with the current waypoint if it is not already in mode AUTO, unless it is in the middle of a landing sequence. This parameter only applies to failsafes during fixed wing modes. Quadplane modes will switch to QLAND unless Q_OPTIONS bit 5 (QRTL) or 20(RTL) are set.
+    // @Values: 0:Continue,1:ReturnToLaunch,2:Glide,3:Deploy Parachute,4:Auto
     // @User: Standard
     GSCALAR(fs_action_long,         "FS_LONG_ACTN",   FS_ACTION_LONG_CONTINUE),
 
@@ -496,32 +512,32 @@ const AP_Param::Info Plane::var_info[] = {
     // @User: Advanced
     GSCALAR(initial_mode,        "INITIAL_MODE",     Mode::Number::MANUAL),
 
-    // @Param: LIM_ROLL_CD
+    // @Param: ROLL_LIMIT_DEG
     // @DisplayName: Maximum Bank Angle
     // @Description: Maximum bank angle commanded in modes with stabilized limits. Increase this value for sharper turns, but decrease to prevent accelerated stalls.
-    // @Units: cdeg
-    // @Range: 0 9000
-    // @Increment: 10
+    // @Units: deg
+    // @Range: 0 90
+    // @Increment: 0.1
     // @User: Standard
-    ASCALAR(roll_limit_cd,          "LIM_ROLL_CD",    HEAD_MAX_CENTIDEGREE),
+    ASCALAR(roll_limit,          "ROLL_LIMIT_DEG",    ROLL_LIMIT_DEG),
 
-    // @Param: LIM_PITCH_MAX
+    // @Param: PTCH_LIM_MAX_DEG
     // @DisplayName: Maximum Pitch Angle
     // @Description: Maximum pitch up angle commanded in modes with stabilized limits.
-    // @Units: cdeg
-    // @Range: 0 9000
+    // @Units: deg
+    // @Range: 0 90
     // @Increment: 10
     // @User: Standard
-    ASCALAR(pitch_limit_max_cd,     "LIM_PITCH_MAX",  PITCH_MAX_CENTIDEGREE),
+    ASCALAR(pitch_limit_max,     "PTCH_LIM_MAX_DEG",  PITCH_MAX),
 
-    // @Param: LIM_PITCH_MIN
+    // @Param: PTCH_LIM_MIN_DEG
     // @DisplayName: Minimum Pitch Angle
     // @Description: Maximum pitch down angle commanded in modes with stabilized limits
-    // @Units: cdeg
-    // @Range: -9000 0
+    // @Units: deg
+    // @Range: -90 0
     // @Increment: 10
     // @User: Standard
-    ASCALAR(pitch_limit_min_cd,     "LIM_PITCH_MIN",  PITCH_MIN_CENTIDEGREE),
+    ASCALAR(pitch_limit_min,     "PTCH_LIM_MIN_DEG",  PITCH_MIN),
 
     // @Param: ACRO_ROLL_RATE
     // @DisplayName: ACRO mode roll rate
@@ -605,26 +621,12 @@ const AP_Param::Info Plane::var_info[] = {
     // @User: Standard
     GSCALAR(dspoiler_rud_rate,      "DSPOILR_RUD_RATE",  DSPOILR_RUD_RATE_DEFAULT),
 
-    // @Param: SYS_NUM_RESETS
-    // @DisplayName: Num Resets
-    // @Description: Number of APM board resets
-    // @ReadOnly: True
-    // @User: Advanced
-    GSCALAR(num_resets,             "SYS_NUM_RESETS", 0),
-
     // @Param: LOG_BITMASK
     // @DisplayName: Log bitmask
     // @Description: Bitmap of what on-board log types to enable. This value is made up of the sum of each of the log types you want to be saved. It is usually best just to enable all basic log types by setting this to 65535.
-    // @Bitmask: 0:Fast Attitude,1:Medium Attitude,2:GPS,3:Performance,4:Control Tuning,5:Navigation Tuning,7:IMU,8:Mission Commands,9:Battery Monitor,10:Compass,11:TECS,12:Camera,13:RC Input-Output,14:Rangefinder,19:Raw IMU,20:Fullrate Attitude,21:Video Stabilization
+    // @Bitmask: 0:Fast Attitude,1:Medium Attitude,2:GPS,3:Performance,4:Control Tuning,5:Navigation Tuning,7:IMU,8:Mission Commands,9:Battery Monitor,10:Compass,11:TECS,12:Camera,13:RC Input-Output,14:Rangefinder,19:Raw IMU,20:Fullrate Attitude,21:Video Stabilization,22:Fullrate Notch
     // @User: Advanced
     GSCALAR(log_bitmask,            "LOG_BITMASK",    DEFAULT_LOG_BITMASK),
-
-    // @Param: TRIM_ARSPD_CM
-    // @DisplayName: Target airspeed
-    // @Description: Target airspeed in cm/s in automatic throttle modes. Value is as an indicated (calibrated/apparent) airspeed.
-    // @Units: cm/s
-    // @User: Standard
-    ASCALAR(airspeed_cruise_cm,     "TRIM_ARSPD_CM",  AIRSPEED_CRUISE_CM),
 
     // @Param: SCALING_SPEED
     // @DisplayName: speed used for speed scaling calculations
@@ -635,35 +637,34 @@ const AP_Param::Info Plane::var_info[] = {
     // @User: Advanced
     GSCALAR(scaling_speed,        "SCALING_SPEED",    SCALING_SPEED),
 
-    // @Param: MIN_GNDSPD_CM
+    // @Param: MIN_GROUNDSPEED
     // @DisplayName: Minimum ground speed
-    // @Description: Minimum ground speed in cm/s when under airspeed control
-    // @Units: cm/s
+    // @Description: Minimum ground speed when under airspeed control
+    // @Units: m/s
     // @User: Advanced
-    ASCALAR(min_gndspeed_cm,      "MIN_GNDSPD_CM",  MIN_GNDSPEED_CM),
+    ASCALAR(min_groundspeed,      "MIN_GROUNDSPEED",  MIN_GROUNDSPEED),
 
-    // @Param: TRIM_PITCH_CD
+    // @Param: PTCH_TRIM_DEG
     // @DisplayName: Pitch angle offset
-    // @Description: Offset applied to AHRS pitch used for in-flight pitch trimming. Correct ground leveling is better than changing this parameter.
-    // @Units: cdeg
-    // @Range: -4500 4500
-    // @Increment: 10
-    // @User: Advanced
-    GSCALAR(pitch_trim_cd,        "TRIM_PITCH_CD",  0),
+    // @Description: Offset in degrees used for in-flight pitch trimming for level flight. Correct ground leveling is an alternative to changing this parameter.
+    // @Units: deg
+    // @Range: -45 45
+    // @User: Standard
+    GSCALAR(pitch_trim,             "PTCH_TRIM_DEG",  0.0f),
 
-    // @Param: ALT_HOLD_RTL
+    // @Param: RTL_ALTITUDE
     // @DisplayName: RTL altitude
     // @Description: Target altitude above home for RTL mode. Maintains current altitude if set to -1. Rally point altitudes are used if plane does not return to home.
-    // @Units: cm
+    // @Units: m
     // @User: Standard
-    GSCALAR(RTL_altitude_cm,        "ALT_HOLD_RTL",   ALT_HOLD_HOME_CM),
+    GSCALAR(RTL_altitude,        "RTL_ALTITUDE",   ALT_HOLD_HOME),
 
-    // @Param: ALT_HOLD_FBWCM
-    // @DisplayName: Minimum altitude for FBWB mode
-    // @Description: This is the minimum altitude in centimeters (above home) that FBWB and CRUISE modes will allow. If you attempt to descend below this altitude then the plane will level off. It will also force a climb to this altitude if below in these modes. A value of zero means no limit.
-    // @Units: cm
+    // @Param: CRUISE_ALT_FLOOR
+    // @DisplayName: Minimum altitude for FBWB and CRUISE mode
+    // @Description: This is the minimum altitude in meters (above home) that FBWB and CRUISE modes will allow. If you attempt to descend below this altitude then the plane will level off. It will also force a climb to this altitude if below in these modes. A value of zero means no limit.
+    // @Units: m
     // @User: Standard
-    GSCALAR(FBWB_min_altitude_cm,   "ALT_HOLD_FBWCM", ALT_HOLD_FBW_CM),
+    GSCALAR(cruise_alt_floor,   "CRUISE_ALT_FLOOR", CRUISE_ALT_FLOOR),
 
     // @Param: FLAP_1_PERCNT
     // @DisplayName: Flap 1 percentage
@@ -754,9 +755,11 @@ const AP_Param::Info Plane::var_info[] = {
     // @Path: AP_Arming.cpp,../libraries/AP_Arming/AP_Arming.cpp
     GOBJECT(arming,                 "ARMING_", AP_Arming_Plane),
 
-    // @Group: RELAY_
+#if AP_RELAY_ENABLED
+    // @Group: RELAY
     // @Path: ../libraries/AP_Relay/AP_Relay.cpp
-    GOBJECT(relay,                  "RELAY_", AP_Relay),
+    GOBJECT(relay,                  "RELAY", AP_Relay),
+#endif
 
 #if PARACHUTE == ENABLED
 	// @Group: CHUTE_
@@ -797,9 +800,11 @@ const AP_Param::Info Plane::var_info[] = {
     GOBJECT(quadplane,           "Q_", QuadPlane),
 #endif
 
+#if AP_TUNING_ENABLED
     // @Group: TUNE_
     // @Path: tuning.cpp,../libraries/AP_Tuning/AP_Tuning.cpp
     GOBJECT(tuning,           "TUNE_", AP_Tuning_Plane),
+#endif
 
 #if HAL_QUADPLANE_ENABLED
     // @Group: Q_A_
@@ -879,9 +884,9 @@ const AP_Param::Info Plane::var_info[] = {
     GOBJECTN(_gcs.chan_parameters[6],  gcs6,       "SR6_",     GCS_MAVLINK_Parameters),
 #endif
 
-    // @Group: INS_
+    // @Group: INS
     // @Path: ../libraries/AP_InertialSensor/AP_InertialSensor.cpp
-    GOBJECT(ins,                    "INS_", AP_InertialSensor),
+    GOBJECT(ins,                    "INS", AP_InertialSensor),
 
     // @Group: AHRS_
     // @Path: ../libraries/AP_AHRS/AP_AHRS.cpp
@@ -903,9 +908,11 @@ const AP_Param::Info Plane::var_info[] = {
     GOBJECT(camera_mount,           "MNT",  AP_Mount),
 #endif
 
+#if HAL_LOGGING_ENABLED
     // @Group: LOG
     // @Path: ../libraries/AP_Logger/AP_Logger.cpp
     GOBJECT(logger,           "LOG",  AP_Logger),
+#endif
 
     // @Group: BATT
     // @Path: ../libraries/AP_BattMonitor/AP_BattMonitor.cpp
@@ -949,9 +956,11 @@ const AP_Param::Info Plane::var_info[] = {
     // @Path: ../libraries/AP_Mission/AP_Mission.cpp
     GOBJECT(mission, "MIS_",       AP_Mission),
 
+#if HAL_RALLY_ENABLED
     // @Group: RALLY_
     // @Path: ../libraries/AP_Rally/AP_Rally.cpp
     GOBJECT(rally,  "RALLY_",       AP_Rally),
+#endif
 
 #if HAL_NAVEKF2_AVAILABLE
     // @Group: EK2_
@@ -1087,15 +1096,16 @@ const AP_Param::GroupInfo ParametersG2::var_info[] = {
     // @Bitmask: 1: Use centered throttle in Cruise or FBWB to indicate trim airspeed
     // @Bitmask: 2: Disable attitude check for takeoff arming
     // @Bitmask: 3: Force target airspeed to trim airspeed in Cruise or FBWB
-    // @Bitmask: 4: Climb to ALT_HOLD_RTL before turning for RTL
+    // @Bitmask: 4: Climb to RTL_ALTITUDE before turning for RTL
     // @Bitmask: 5: Enable yaw damper in acro mode
     // @Bitmask: 6: Supress speed scaling during auto takeoffs to be 1 or less to prevent oscillations without airspeed sensor.
     // @Bitmask: 7: EnableDefaultAirspeed for takeoff
-    // @Bitmask: 8: Remove the TRIM_PITCH_CD on the GCS horizon
-    // @Bitmask: 9: Remove the TRIM_PITCH_CD on the OSD horizon
+    // @Bitmask: 8: Remove the PTCH_TRIM_DEG on the GCS horizon
+    // @Bitmask: 9: Remove the PTCH_TRIM_DEG on the OSD horizon
     // @Bitmask: 10: Adjust mid-throttle to be TRIM_THROTTLE in non-auto throttle modes except MANUAL
     // @Bitmask: 11: Disable suppression of fixed wing rate gains in ground mode
     // @Bitmask: 12: Enable FBWB style loiter altitude control
+    // @Bitmask: 13: Indicate takeoff waiting for neutral rudder with flight control surfaces
     // @User: Advanced
     AP_GROUPINFO("FLIGHT_OPTIONS", 13, ParametersG2, flight_options, 0),
 
@@ -1172,7 +1182,7 @@ const AP_Param::GroupInfo ParametersG2::var_info[] = {
     // @Units: V
     // @Increment: 0.1
     // @User: Advanced
-    AP_GROUPINFO("FWD_BAT_VOLT_MAX", 23, ParametersG2, fwd_thr_batt_voltage_max, 0.0f),
+    AP_GROUPINFO("FWD_BAT_VOLT_MAX", 23, ParametersG2, fwd_batt_cmp.batt_voltage_max, 0.0f),
 
     // @Param: FWD_BAT_VOLT_MIN
     // @DisplayName: Forward throttle battery voltage compensation minimum voltage
@@ -1181,14 +1191,14 @@ const AP_Param::GroupInfo ParametersG2::var_info[] = {
     // @Units: V
     // @Increment: 0.1
     // @User: Advanced
-    AP_GROUPINFO("FWD_BAT_VOLT_MIN", 24, ParametersG2, fwd_thr_batt_voltage_min, 0.0f),
+    AP_GROUPINFO("FWD_BAT_VOLT_MIN", 24, ParametersG2, fwd_batt_cmp.batt_voltage_min, 0.0f),
 
     // @Param: FWD_BAT_IDX
     // @DisplayName: Forward throttle battery compensation index
     // @Description: Which battery monitor should be used for doing compensation for the forward throttle
     // @Values: 0:First battery, 1:Second battery
     // @User: Advanced
-    AP_GROUPINFO("FWD_BAT_IDX", 25, ParametersG2, fwd_thr_batt_idx, 0),
+    AP_GROUPINFO("FWD_BAT_IDX", 25, ParametersG2, fwd_batt_cmp.batt_idx, 0),
 
     // @Param: FS_EKF_THRESH
     // @DisplayName: EKF failsafe variance threshold
@@ -1243,7 +1253,7 @@ const AP_Param::GroupInfo ParametersG2::var_info[] = {
     // @Bitmask: 0: Servo 1, 1: Servo 2, 2: Servo 3, 3: Servo 4, 4: Servo 5, 5: Servo 6, 6: Servo 7, 7: Servo 8, 8: Servo 9, 9: Servo 10, 10: Servo 11, 11: Servo 12, 12: Servo 13, 13: Servo 14, 14: Servo 15
     AP_GROUPINFO("ONESHOT_MASK", 32, ParametersG2, oneshot_mask, 0),
 
-#if AP_SCRIPTING_ENABLED
+#if AP_SCRIPTING_ENABLED && AP_FOLLOW_ENABLED
     // @Group: FOLL
     // @Path: ../libraries/AP_Follow/AP_Follow.cpp
     AP_SUBGROUPINFO(follow, "FOLL", 33, ParametersG2, AP_Follow),
@@ -1256,16 +1266,17 @@ const AP_Param::GroupInfo ParametersG2::var_info[] = {
     // @User: Standard
     AP_GROUPINFO("AUTOTUNE_AXES", 34, ParametersG2, axis_bitmask, 7),
 
+#if AC_PRECLAND_ENABLED
+    // @Group: PLND_
+    // @Path: ../libraries/AC_PrecLand/AC_PrecLand.cpp
+    AP_SUBGROUPINFO(precland, "PLND_", 35, ParametersG2, AC_PrecLand),
+#endif
 
-    
     AP_GROUPEND
 };
 
 ParametersG2::ParametersG2(void) :
     unused_integer{1}
-#if AP_ICENGINE_ENABLED
-    ,ice_control(plane.rpm_sensor)
-#endif
 #if HAL_SOARING_ENABLED
     ,soaring_controller(plane.TECS_controller, plane.aparm)
 #endif
@@ -1314,7 +1325,6 @@ static const AP_Param::ConversionInfo conversion_table[] = {
 
     { Parameters::k_param_land_slope_recalc_shallow_threshold,0,AP_PARAM_FLOAT, "LAND_SLOPE_RCALC" },
     { Parameters::k_param_land_slope_recalc_steep_threshold_to_abort,0,AP_PARAM_FLOAT, "LAND_ABORT_DEG" },
-    { Parameters::k_param_land_pitch_cd,      0,      AP_PARAM_INT16, "LAND_PITCH_CD" },
     { Parameters::k_param_land_flare_alt,     0,      AP_PARAM_FLOAT, "LAND_FLARE_ALT" },
     { Parameters::k_param_land_flare_sec,     0,      AP_PARAM_FLOAT, "LAND_FLARE_SEC" },
     { Parameters::k_param_land_pre_flare_sec, 0,      AP_PARAM_FLOAT, "LAND_PF_SEC" },
@@ -1545,6 +1555,19 @@ void Plane::load_parameters(void)
 #if AP_FENCE_ENABLED
     AP_Param::convert_class(g.k_param_fence, &fence, fence.var_info, 0, 0, true);
 #endif
+  
+    // PARAMETER_CONVERSION - Added: Dec 2023
+    // Convert _CM (centimeter) parameters to meters and _CD (centidegrees) parameters to meters
+    g.pitch_trim.convert_centi_parameter(AP_PARAM_INT16);
+    aparm.airspeed_cruise.convert_centi_parameter(AP_PARAM_INT32);
+    aparm.min_groundspeed.convert_centi_parameter(AP_PARAM_INT32);
+    g.RTL_altitude.convert_centi_parameter(AP_PARAM_INT32);
+    g.cruise_alt_floor.convert_centi_parameter(AP_PARAM_INT16);
+    aparm.pitch_limit_max.convert_centi_parameter(AP_PARAM_INT16);
+    aparm.pitch_limit_min.convert_centi_parameter(AP_PARAM_INT16);
+    aparm.roll_limit.convert_centi_parameter(AP_PARAM_INT16);
+
+    landing.convert_parameters();
 
     hal.console->printf("load_all took %uus\n", (unsigned)(micros() - before));
 }

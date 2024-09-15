@@ -20,9 +20,20 @@
 
 #include "HarmonicNotchFilter.h"
 #include <GCS_MAVLink/GCS.h>
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <stdio.h>
 
 #define HNF_MAX_FILTERS HAL_HNF_MAX_FILTERS // must be even for double-notch filters
-#define HNF_MAX_HARMONICS 8
+
+/*
+  optional logging for SITL only of all notch frequencies
+ */
+#ifndef NOTCH_DEBUG_LOGGING
+#define NOTCH_DEBUG_LOGGING 0
+#endif
+
 
 // table of user settable parameters
 const AP_Param::GroupInfo HarmonicNotchFilterParams::var_info[] = {
@@ -36,7 +47,7 @@ const AP_Param::GroupInfo HarmonicNotchFilterParams::var_info[] = {
 
     // @Param: FREQ
     // @DisplayName: Harmonic Notch Filter base frequency
-    // @Description: Harmonic Notch Filter base center frequency in Hz. This should be set at most half the backend gyro rate (which is typically 1Khz). For helicopters using RPM sensor to dynamically set the notch frequency, use this parameter to provide a lower limit to the dynamic notch filter.  Recommend setting it to half the operating rotor speed in Hz.
+    // @Description: Harmonic Notch Filter base center frequency in Hz. This is the center frequency for static notches, the center frequency for Throttle based notches at the reference thrust value, and the minimum limit of center frequency variation for all other notch types. This should always be set lower than half the backend gyro rate (which is typically 1Khz). 
     // @Range: 10 495
     // @Units: Hz
     // @User: Advanced
@@ -61,7 +72,22 @@ const AP_Param::GroupInfo HarmonicNotchFilterParams::var_info[] = {
     // @Param: HMNCS
     // @DisplayName: Harmonic Notch Filter harmonics
     // @Description: Bitmask of harmonic frequencies to apply Harmonic Notch Filter to. This option takes effect on the next reboot. A value of 0 disables this filter. The first harmonic refers to the base frequency.
-    // @Bitmask: 0:1st harmonic,1:2nd harmonic,2:3rd harmonic,3:4th hamronic,4:5th harmonic,5:6th harmonic,6:7th harmonic,7:8th harmonic
+    // @Bitmask: 0:  1st harmonic
+    // @Bitmask: 1:  2nd harmonic
+    // @Bitmask: 2:  3rd harmonic
+    // @Bitmask: 3:  4th harmonic
+    // @Bitmask: 4:  5th harmonic
+    // @Bitmask: 5:  6th harmonic
+    // @Bitmask: 6:  7th harmonic
+    // @Bitmask: 7:  8th harmonic
+    // @Bitmask: 8:  9th harmonic
+    // @Bitmask: 9:  10th harmonic
+    // @Bitmask: 10: 11th harmonic
+    // @Bitmask: 11: 12th harmonic
+    // @Bitmask: 12: 13th harmonic
+    // @Bitmask: 13: 14th harmonic
+    // @Bitmask: 14: 15th harmonic
+    // @Bitmask: 15: 16th harmonic
     // @User: Advanced
     // @RebootRequired: True
     AP_GROUPINFO("HMNCS", 5, HarmonicNotchFilterParams, _harmonics, 3),
@@ -77,15 +103,15 @@ const AP_Param::GroupInfo HarmonicNotchFilterParams::var_info[] = {
     // @Param: MODE
     // @DisplayName: Harmonic Notch Filter dynamic frequency tracking mode
     // @Description: Harmonic Notch Filter dynamic frequency tracking mode. Dynamic updates can be throttle, RPM sensor, ESC telemetry or dynamic FFT based. Throttle-based updates should only be used with multicopters.
-    // @Range: 0 4
-    // @Values: 0:Disabled,1:Throttle,2:RPM Sensor,3:ESC Telemetry,4:Dynamic FFT,5:Second RPM Sensor
+    // @Range: 0 5
+    // @Values: 0:Fixed,1:Throttle,2:RPM Sensor,3:ESC Telemetry,4:Dynamic FFT,5:Second RPM Sensor
     // @User: Advanced
     AP_GROUPINFO("MODE", 7, HarmonicNotchFilterParams, _tracking_mode, int8_t(HarmonicNotchDynamicMode::UpdateThrottle)),
 
     // @Param: OPTS
     // @DisplayName: Harmonic Notch Filter options
-    // @Description: Harmonic Notch Filter options. Triple and double-notches can provide deeper attenuation across a wider bandwidth with reduced latency than single notches and are suitable for larger aircraft. Dynamic harmonics attaches a harmonic notch to each detected noise frequency instead of simply being multiples of the base frequency, in the case of FFT it will attach notches to each of three detected noise peaks, in the case of ESC it will attach notches to each of four motor RPM values. Loop rate update changes the notch center frequency at the scheduler loop rate rather than at the default of 200Hz. If both double and triple notches are specified only double notches will take effect.
-    // @Bitmask: 0:Double notch,1:Dynamic harmonic,2:Update at loop rate,3:EnableOnAllIMUs,4:Triple notch
+    // @Description: Harmonic Notch Filter options. Triple and double-notches can provide deeper attenuation across a wider bandwidth with reduced latency than single notches and are suitable for larger aircraft. Multi-Source attaches a harmonic notch to each detected noise frequency instead of simply being multiples of the base frequency, in the case of FFT it will attach notches to each of three detected noise peaks, in the case of ESC it will attach notches to each of four motor RPM values. Loop rate update changes the notch center frequency at the scheduler loop rate rather than at the default of 200Hz. If both double and triple notches are specified only double notches will take effect.
+    // @Bitmask: 0:Double notch,1:Multi-Source,2:Update at loop rate,3:EnableOnAllIMUs,4:Triple notch
     // @User: Advanced
     // @RebootRequired: True
     AP_GROUPINFO("OPTS", 8, HarmonicNotchFilterParams, _options, 0),
@@ -143,7 +169,7 @@ void HarmonicNotchFilter<T>::init(float sample_freq_hz, float center_freq_hz, fl
   allocate a collection of, at most HNF_MAX_FILTERS, notch filters to be managed by this harmonic notch filter
  */
 template <class T>
-void HarmonicNotchFilter<T>::allocate_filters(uint8_t num_notches, uint8_t harmonics, uint8_t composite_notches)
+void HarmonicNotchFilter<T>::allocate_filters(uint8_t num_notches, uint32_t harmonics, uint8_t composite_notches)
 {
     _composite_notches = MIN(composite_notches, 3);
     _num_harmonics = __builtin_popcount(harmonics);
@@ -163,13 +189,8 @@ void HarmonicNotchFilter<T>::allocate_filters(uint8_t num_notches, uint8_t harmo
   expand the number of filters at runtime, allowing for RPM sources such as lua scripts
  */
 template <class T>
-void HarmonicNotchFilter<T>::expand_filter_count(uint8_t num_notches)
+void HarmonicNotchFilter<T>::expand_filter_count(uint16_t total_notches)
 {
-    uint8_t num_filters = _num_harmonics * num_notches * _composite_notches;
-    if (num_filters <= _num_filters) {
-        // enough already
-        return;
-    }
     if (_alloc_has_failed) {
         // we've failed to allocate before, don't try again
         return;
@@ -178,7 +199,7 @@ void HarmonicNotchFilter<T>::expand_filter_count(uint8_t num_notches)
       note that we rely on the semaphore in
       AP_InertialSensor_Backend.cpp to make this thread safe
      */
-    auto filters = new NotchFilter<T>[num_filters];
+    auto filters = new NotchFilter<T>[total_notches];
     if (filters == nullptr) {
         _alloc_has_failed = true;
         return;
@@ -186,7 +207,7 @@ void HarmonicNotchFilter<T>::expand_filter_count(uint8_t num_notches)
     memcpy(filters, _filters, sizeof(filters[0])*_num_filters);
     auto _old_filters = _filters;
     _filters = filters;
-    _num_filters = num_filters;
+    _num_filters = total_notches;
     delete[] _old_filters;
 }
 
@@ -203,7 +224,7 @@ void HarmonicNotchFilter<T>::update(float center_freq_hz)
 
     // adjust the fundamental center frequency to be in the allowable range
     const float nyquist_limit = _sample_freq_hz * 0.48f;
-    center_freq_hz = constrain_float(center_freq_hz, 1.0f, nyquist_limit);
+    center_freq_hz = constrain_float(center_freq_hz, 0.0f, nyquist_limit);
 
     _num_enabled_filters = 0;
     // update all of the filters using the new center frequency and existing A & Q
@@ -247,15 +268,16 @@ void HarmonicNotchFilter<T>::update(uint8_t num_centers, const float center_freq
     // adjust the frequencies to be in the allowable range
     const float nyquist_limit = _sample_freq_hz * 0.48f;
 
-    if (num_centers > _num_filters) {
+    uint16_t total_notches = num_centers * _num_harmonics * _composite_notches;
+    if (total_notches > _num_filters) {
         // alloc realloc of filters
-        expand_filter_count(num_centers);
+        expand_filter_count(total_notches);
     }
 
     _num_enabled_filters = 0;
 
     // update all of the filters using the new center frequencies and existing A & Q
-    for (uint8_t i = 0; i < num_centers * HNF_MAX_HARMONICS && _num_enabled_filters < _num_filters; i++) {
+    for (uint16_t i = 0; i < num_centers * HNF_MAX_HARMONICS && _num_enabled_filters < _num_filters; i++) {
         const uint8_t harmonic_n = i / num_centers;
         const uint8_t center_n = i % num_centers;
         // the filters are ordered by center and then harmonic so
@@ -264,7 +286,7 @@ void HarmonicNotchFilter<T>::update(uint8_t num_centers, const float center_freq
             continue;
         }
 
-        const float notch_center = constrain_float(center_freq_hz[center_n] * (harmonic_n+1), 1.0f, nyquist_limit);
+        const float notch_center = constrain_float(center_freq_hz[center_n] * (harmonic_n+1), 0.0f, nyquist_limit);
         if (_composite_notches != 2) {
             // only enable the filter if its center frequency is below the nyquist frequency
             if (notch_center < nyquist_limit) {
@@ -297,10 +319,29 @@ T HarmonicNotchFilter<T>::apply(const T &sample)
         return sample;
     }
 
+#if NOTCH_DEBUG_LOGGING
+    static int dfd = -1;
+    if (dfd == -1) {
+        dfd = ::open("notch.txt", O_WRONLY|O_CREAT|O_TRUNC, 0644);
+    }
+#endif
+
     T output = sample;
-    for (uint8_t i = 0; i < _num_enabled_filters; i++) {
+    for (uint16_t i = 0; i < _num_enabled_filters; i++) {
+#if NOTCH_DEBUG_LOGGING
+        if (!_filters[i].initialised) {
+            ::dprintf(dfd, "------- ");
+        } else {
+            ::dprintf(dfd, "%.4f ", _filters[i]._center_freq_hz);
+        }
+#endif
         output = _filters[i].apply(output);
     }
+#if NOTCH_DEBUG_LOGGING
+    if (_num_enabled_filters > 0) {
+        ::dprintf(dfd, "\n");
+    }
+#endif
     return output;
 }
 
@@ -314,7 +355,7 @@ void HarmonicNotchFilter<T>::reset()
         return;
     }
 
-    for (uint8_t i = 0; i < _num_filters; i++) {
+    for (uint16_t i = 0; i < _num_filters; i++) {
         _filters[i].reset();
     }
 }
@@ -325,6 +366,11 @@ void HarmonicNotchFilter<T>::reset()
 HarmonicNotchFilterParams::HarmonicNotchFilterParams(void)
 {
     AP_Param::setup_object_defaults(this, var_info);
+}
+
+void HarmonicNotchFilterParams::init()
+{
+    _harmonics.convert_bitmask_parameter_width(AP_PARAM_INT8);
 }
 
 /*

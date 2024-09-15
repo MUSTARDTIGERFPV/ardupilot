@@ -164,11 +164,11 @@ static const AP_OSD_ParamSetting::Initializer PARAM_DEFAULTS[AP_OSD_NUM_PARAM_SC
     },
     {
         { 1, { 185, 0, 0 }, OSD_PARAM_NONE },               // TRIM_THROTTLE
-        { 2, { 155, 0, 0 }, OSD_PARAM_NONE },               // TRIM_ARSPD_CM
+        { 2, { 155, 0, 0 }, OSD_PARAM_NONE },               // AIRSPEED_CRUISE
         { 3, { 4, 0, 1094 }, OSD_PARAM_NONE },              // SERVO_AUTO_TRIM
-        { 4, { 120, 0, 0 }, OSD_PARAM_NONE},                // ARSPD_FBW_MIN
-        { 5, { 121, 0, 0 }, OSD_PARAM_NONE },               // ARSPD_FBW_MAX
-        { 6, { 156, 0, 0 }, OSD_PARAM_NONE },               // ALT_HOLD_RTL
+        { 4, { 120, 0, 0 }, OSD_PARAM_NONE},                // AIRSPEED_MIN
+        { 5, { 121, 0, 0 }, OSD_PARAM_NONE },               // AIRSPEED_MAX
+        { 6, { 156, 0, 0 }, OSD_PARAM_NONE },               // RTL_ALTITUDE
         { 7, { 140, 2, 8 }, OSD_PARAM_NONE },               // AHRS_TRIM_Y
         { 8, { 182, 0, 0 }, OSD_PARAM_NONE },               // THR_MAX
         { 9, { 189, 0, 0 }, OSD_PARAM_NONE }                // THR_SLEWRATE
@@ -405,7 +405,7 @@ RC_Channel::AuxSwitchPos AP_OSD_ParamScreen::get_channel_pos(uint8_t rcmapchan) 
     }
 
     // switch is reversed if 'reversed' option set on channel and switches reverse is allowed by RC_OPTIONS
-    bool switch_reversed = chan->get_reverse() && rc().switch_reverse_allowed();
+    bool switch_reversed = chan->get_reverse() && rc().option_is_enabled(RC_Channels::Option::ALLOW_SWITCH_REV);
 
     if (in < RC_Channel::AUX_PWM_TRIGGER_LOW) {
         return switch_reversed ? RC_Channel::AuxSwitchPos::HIGH : RC_Channel::AuxSwitchPos::LOW;
@@ -594,19 +594,6 @@ void AP_OSD_ParamScreen::draw(void)
     draw_parameter(SAVE_PARAM, save_x, save_y);
 }
 #endif
-
-// pre_arm_check - returns true if all pre-takeoff checks have completed successfully
-bool AP_OSD::pre_arm_check(char *failure_msg, const uint8_t failure_msg_len) const
-{
-    // currently in the OSD menu, do not allow arming
-    if (!is_readonly_screen()) {
-        hal.util->snprintf(failure_msg, failure_msg_len, "In OSD menu");
-        return false;
-    }
-
-    // if we got this far everything must be ok
-    return true;
-}
 
 #endif // OSD_ENABLED
 

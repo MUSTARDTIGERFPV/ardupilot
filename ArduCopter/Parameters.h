@@ -383,6 +383,8 @@ public:
         // 254,255: reserved
 
         k_param_vehicle = 257, // vehicle common block of parameters
+        k_param_throw_altitude_min,
+        k_param_throw_altitude_max,
 
         // the k_param_* space is 9-bits in size
         // 511: reserved
@@ -463,6 +465,8 @@ public:
 
 #if MODE_THROW_ENABLED == ENABLED
     AP_Enum<ModeThrow::PreThrowMotorState>         throw_motor_start;
+    AP_Int16         throw_altitude_min; // minimum altitude in m above which a throw can be detected
+    AP_Int16         throw_altitude_max; // maximum altitude in m below which a throw can be detected
 #endif
 
     AP_Int16                rc_speed; // speed of fast RC Channels in Hz
@@ -522,10 +526,12 @@ public:
     // ground effect compensation enable/disable
     AP_Int8 gndeffect_comp_enabled;
 
+#if AP_TEMPCALIBRATION_ENABLED
     // temperature calibration handling
     AP_TempCalibration temp_calibration;
+#endif
 
-#if BEACON_ENABLED == ENABLED
+#if AP_BEACON_ENABLED
     // beacon (non-GPS positioning) library
     AP_Beacon beacon;
 #endif
@@ -589,7 +595,7 @@ public:
     AP_Follow follow;
 #endif
 
-#ifdef USER_PARAMS_ENABLED
+#if USER_PARAMS_ENABLED == ENABLED
     // User custom parameters
     UserParameters user_parameters;
 #endif
@@ -674,12 +680,18 @@ public:
     AP_Int8                 surftrak_mode;
     AP_Int8                 failsafe_dr_enable;
     AP_Int16                failsafe_dr_timeout;
+    AP_Float                surftrak_tc;
 
     // ramp time of throttle during take-off
     AP_Float takeoff_throttle_slew_time;
+    AP_Float takeoff_throttle_max;
 #if HAL_WITH_ESC_TELEM && FRAME_CONFIG != HELI_FRAME
     AP_Int16 takeoff_rpm_min;
+    AP_Int16 takeoff_rpm_max;
 #endif
+
+    // EKF variance filter cutoff
+    AP_Float fs_ekf_filt_hz;
 
 #if WEATHERVANE_ENABLED == ENABLED
     AC_WeatherVane weathervane;

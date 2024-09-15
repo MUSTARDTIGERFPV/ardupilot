@@ -47,8 +47,8 @@ void ModeRTL::update()
     plane.calc_throttle();
 
     bool alt_threshold_reached = false;
-    if (plane.g2.flight_options & FlightOptions::CLIMB_BEFORE_TURN) {
-        // Climb to ALT_HOLD_RTL before turning. This overrides RTL_CLIMB_MIN.
+    if (plane.flight_option_enabled(FlightOptions::CLIMB_BEFORE_TURN)) {
+        // Climb to RTL_ALTITUDE before turning. This overrides RTL_CLIMB_MIN.
         alt_threshold_reached = plane.current_loc.alt > plane.next_WP_loc.alt;
     } else if (plane.g2.rtl_climb_min > 0) {
         /*
@@ -95,6 +95,13 @@ void ModeRTL::navigate()
     }
 #endif
 
+    uint16_t radius = abs(plane.g.rtl_radius);
+    if (radius > 0) {
+        plane.loiter.direction = (plane.g.rtl_radius < 0) ? -1 : 1;
+    }
+
+    plane.update_loiter(radius);
+
     if (!plane.auto_state.checked_for_autoland) {
         if ((plane.g.rtl_autoland == RtlAutoland::RTL_IMMEDIATE_DO_LAND_START) ||
             (plane.g.rtl_autoland == RtlAutoland::RTL_THEN_DO_LAND_START &&
@@ -116,13 +123,6 @@ void ModeRTL::navigate()
                 plane.auto_state.checked_for_autoland = true;
             }
     }
-
-    uint16_t radius = abs(plane.g.rtl_radius);
-    if (radius > 0) {
-        plane.loiter.direction = (plane.g.rtl_radius < 0) ? -1 : 1;
-    }
-
-    plane.update_loiter(radius);
 }
 
 #if HAL_QUADPLANE_ENABLED

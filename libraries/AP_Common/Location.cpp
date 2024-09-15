@@ -27,12 +27,16 @@ void Location::zero(void)
 // Construct location using position (NEU) from ekf_origin for the given altitude frame
 Location::Location(int32_t latitude, int32_t longitude, int32_t alt_in_cm, AltFrame frame)
 {
+    // make sure we know what size the Location object is:
+    ASSERT_STORAGE_SIZE(Location, 16);
+
     zero();
     lat = latitude;
     lng = longitude;
     set_alt_cm(alt_in_cm, frame);
 }
 
+#if AP_AHRS_ENABLED
 Location::Location(const Vector3f &ekf_offset_neu, AltFrame frame)
 {
     zero();
@@ -48,22 +52,7 @@ Location::Location(const Vector3f &ekf_offset_neu, AltFrame frame)
         offset(ekf_offset_neu.x * 0.01, ekf_offset_neu.y * 0.01);
     }
 }
-
-Location::Location(const Vector3d &ekf_offset_neu, AltFrame frame)
-{
-    zero();
-
-    // store alt and alt frame
-    set_alt_cm(ekf_offset_neu.z, frame);
-
-    // calculate lat, lon
-    Location ekf_origin;
-    if (AP::ahrs().get_origin(ekf_origin)) {
-        lat = ekf_origin.lat;
-        lng = ekf_origin.lng;
-        offset(ekf_offset_neu.x * 0.01, ekf_offset_neu.y * 0.01);
-    }
-}
+#endif  // AP_AHRS_ENABLED
 
 void Location::set_alt_cm(int32_t alt_cm, AltFrame frame)
 {
@@ -157,12 +146,17 @@ bool Location::get_alt_cm(AltFrame desired_frame, int32_t &ret_alt_cm) const
             alt_abs = alt;
             break;
         case AltFrame::ABOVE_HOME:
+#if AP_AHRS_ENABLED
             if (!AP::ahrs().home_is_set()) {
                 return false;
             }
             alt_abs = alt + AP::ahrs().get_home().alt;
+#else
+            return false;
+#endif  // AP_AHRS_ENABLED
             break;
         case AltFrame::ABOVE_ORIGIN:
+#if AP_AHRS_ENABLED
             {
                 // fail if we cannot get ekf origin
                 Location ekf_origin;
@@ -172,6 +166,9 @@ bool Location::get_alt_cm(AltFrame desired_frame, int32_t &ret_alt_cm) const
                 alt_abs = alt + ekf_origin.alt;
             }
             break;
+#else
+            return false;
+#endif  // AP_AHRS_ENABLED
         case AltFrame::ABOVE_TERRAIN:
             alt_abs = alt + alt_terr_cm;
             break;
@@ -183,12 +180,17 @@ bool Location::get_alt_cm(AltFrame desired_frame, int32_t &ret_alt_cm) const
             ret_alt_cm = alt_abs;
             return true;
         case AltFrame::ABOVE_HOME:
+#if AP_AHRS_ENABLED
             if (!AP::ahrs().home_is_set()) {
                 return false;
             }
             ret_alt_cm = alt_abs - AP::ahrs().get_home().alt;
+#else
+            return false;
+#endif  // AP_AHRS_ENABLED
             return true;
         case AltFrame::ABOVE_ORIGIN:
+#if AP_AHRS_ENABLED
             {
                 // fail if we cannot get ekf origin
                 Location ekf_origin;
@@ -198,6 +200,9 @@ bool Location::get_alt_cm(AltFrame desired_frame, int32_t &ret_alt_cm) const
                 ret_alt_cm = alt_abs - ekf_origin.alt;
                 return true;
             }
+#else
+            return false;
+#endif  // AP_AHRS_ENABLED
         case AltFrame::ABOVE_TERRAIN:
             ret_alt_cm = alt_abs - alt_terr_cm;
             return true;
@@ -205,6 +210,7 @@ bool Location::get_alt_cm(AltFrame desired_frame, int32_t &ret_alt_cm) const
     return false;  // LCOV_EXCL_LINE  - not reachable
 }
 
+#if AP_AHRS_ENABLED
 bool Location::get_vector_xy_from_origin_NE(Vector2f &vec_ne) const
 {
     Location ekf_origin;
@@ -232,6 +238,7 @@ bool Location::get_vector_from_origin_NEU(Vector3f &vec_neu) const
 
     return true;
 }
+#endif  // AP_AHRS_ENABLED
 
 // return horizontal distance in meters between two locations
 ftype Location::get_distance(const Location &loc2) const
@@ -306,6 +313,14 @@ void Location::offset(ftype ofs_north, ftype ofs_east)
     offset_latlng(lat, lng, ofs_north, ofs_east);
 }
 
+// extrapolate latitude/longitude given distances (in meters) north
+// and east. Note that this is metres, *even for the altitude*.
+void Location::offset(const Vector3p &ofs_ned)
+{
+    offset_latlng(lat, lng, ofs_ned.x, ofs_ned.y);
+    alt += -ofs_ned.z * 100;  // m -> cm
+}
+
 /*
  *  extrapolate latitude/longitude given bearing and distance
  * Note that this function is accurate to about 1mm at a distance of
@@ -369,10 +384,6 @@ bool Location::sanitize(const Location &defaultLoc)
     return has_changed;
 }
 
-// make sure we know what size the Location object is:
-assert_storage_size<Location, 16> _assert_storage_size_Location;
-
-
 // return bearing in radians from location to loc2, return is 0 to 2*Pi
 ftype Location::get_bearing(const Location &loc2) const
 {
@@ -391,6 +402,20 @@ ftype Location::get_bearing(const Location &loc2) const
 bool Location::same_latlon_as(const Location &loc2) const
 {
     return (lat == loc2.lat) && (lng == loc2.lng);
+}
+
+bool Location::same_alt_as(const Location &loc2) const
+{
+    // fast path if the altitude frame is the same
+    if (this->get_alt_frame() == loc2.get_alt_frame()) {
+        return this->alt == loc2.alt;
+    }
+
+    ftype alt_diff;
+    bool have_diff = this->get_alt_distance(loc2, alt_diff);
+
+    const ftype tolerance = FLT_EPSILON;
+    return have_diff && (fabsF(alt_diff) < tolerance);
 }
 
 // return true when lat and lng are within range
@@ -459,7 +484,7 @@ int32_t Location::diff_longitude(int32_t lon1, int32_t lon2)
 }
 
 /*
-  limit lattitude to -90e7 to 90e7
+  limit latitude to -90e7 to 90e7
  */
 int32_t Location::limit_lattitude(int32_t lat)
 {

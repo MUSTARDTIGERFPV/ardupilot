@@ -1,3 +1,5 @@
+#include <AP_Scripting/AP_Scripting_config.h>
+
 #if AP_SCRIPTING_ENABLED
 
 #include "AC_AttitudeControl_Multi_6DoF.h"
@@ -5,7 +7,7 @@
 #include <AP_Math/AP_Math.h>
 
 // 6DoF control is extracted from the existing copter code by treating desired angles as thrust angles rather than vehicle attitude.
-// Vehicle attitude is then set separately, typically the vehicle would matain 0 roll and pitch.
+// Vehicle attitude is then set separately, typically the vehicle would maintain 0 roll and pitch.
 // rate commands result in the vehicle behaving as a ordinary copter.
 
 // run lowest level body-frame rate controller and send outputs to the motors

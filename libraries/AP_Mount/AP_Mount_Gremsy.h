@@ -5,10 +5,6 @@
 
 #include "AP_Mount_Backend.h"
 
-#ifndef HAL_MOUNT_GREMSY_ENABLED
-#define HAL_MOUNT_GREMSY_ENABLED (HAL_MOUNT_ENABLED && !HAL_MINIMIZE_FEATURES && BOARD_FLASH_SIZE > 1024)
-#endif
-
 #if HAL_MOUNT_GREMSY_ENABLED
 
 #include <AP_Math/AP_Math.h>
@@ -20,10 +16,7 @@ class AP_Mount_Gremsy : public AP_Mount_Backend
 
 public:
     // Constructor
-    AP_Mount_Gremsy(AP_Mount &frontend, AP_Mount_Params &params, uint8_t instance);
-
-    // init
-    void init() override {}
+    using AP_Mount_Backend::AP_Mount_Backend;
 
     // update mount position
     void update() override;
@@ -77,6 +70,5 @@ private:
     uint8_t _compid;                // component id of gimbal
     mavlink_gimbal_device_attitude_status_t _gimbal_device_attitude_status;  // copy of most recently received gimbal status
     uint32_t _last_attitude_status_ms;  // system time last attitude status was received (used for health reporting)
-    uint32_t _sent_gimbal_device_attitude_status_ms;    // time_boot_ms field of gimbal_device_status message last forwarded to the GCS (used to prevent sending duplicates)
 };
 #endif // HAL_MOUNT_GREMSY_ENABLED

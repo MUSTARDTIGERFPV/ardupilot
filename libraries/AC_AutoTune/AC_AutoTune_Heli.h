@@ -18,6 +18,10 @@
 
 #pragma once
 
+#include "AC_AutoTune_config.h"
+
+#if AC_AUTOTUNE_ENABLED
+
 #include "AC_AutoTune.h"
 #include <AP_Math/chirp.h>
 #include <GCS_MAVLink/GCS.h>
@@ -60,7 +64,7 @@ protected:
     // load test gains
     void load_test_gains() override;
 
-    // reset the test vaariables for heli
+    // reset the test variables for heli
     void reset_vehicle_test_variables() override;
 
     // reset the update gain variables for heli
@@ -99,6 +103,7 @@ protected:
     // reverse direction for twitch test
     bool twitch_reverse_direction() override { return positive_direction; }
 
+#if HAL_LOGGING_ENABLED
     // methods to log autotune summary data
     void Log_AutoTune() override;
     void Log_Write_AutoTune(uint8_t _axis, uint8_t tune_step, float dwell_freq, float meas_gain, float meas_phase, float new_gain_rff, float new_gain_rp, float new_gain_rd, float new_gain_sp, float max_accel);
@@ -110,8 +115,9 @@ protected:
     // methods to log autotune frequency response results
     void Log_AutoTuneSweep() override;
     void Log_Write_AutoTuneSweep(float freq, float gain, float phase);
+#endif
 
-    // send intermittant updates to user on status of tune
+    // send intermittent updates to user on status of tune
     void do_gcs_announcements() override;
 
     // send post test updates to user
@@ -161,7 +167,7 @@ private:
     void dwell_test_run(uint8_t freq_resp_input, float start_frq, float stop_frq, float &dwell_gain, float &dwell_phase, DwellType dwell_type);
 
     // updating_rate_ff_up - adjust FF to ensure the target is reached
-    // FF is adjusted until rate requested is acheived
+    // FF is adjusted until rate requested is achieved
     void updating_rate_ff_up(float &tune_ff, float rate_target, float meas_rate, float meas_command);
 
     // updating_rate_p_up - uses maximum allowable gain determined from max_gain test to determine rate p gain that does not exceed exceed max response gain
@@ -185,7 +191,7 @@ private:
     // exceeded_freq_range - ensures tuning remains inside frequency range
     bool exceeded_freq_range(float frequency);
 
-    // report gain formating helper
+    // report gain formatting helper
     void report_axis_gains(const char* axis_string, float rate_P, float rate_I, float rate_D, float rate_ff, float angle_P, float max_accel) const;
 
     // updating rate FF variables
@@ -243,7 +249,6 @@ private:
     Vector3f start_angles;                          // aircraft attitude at the start of test
     uint32_t settle_time;                           // time in ms for allowing aircraft to stabilize before initiating test
     uint32_t phase_out_time;                        // time in ms to phase out response
-    float    waveform_freq_rads;                    //current frequency for chirp waveform
     float    trim_pff_out;                          // trim output of the PID rate controller for P, I and FF terms
     float    trim_meas_rate;                        // trim measured gyro rate
 
@@ -297,3 +302,5 @@ private:
 
     Chirp chirp_input;
 };
+
+#endif  // AC_AUTOTUNE_ENABLED

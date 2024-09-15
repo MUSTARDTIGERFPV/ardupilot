@@ -23,9 +23,11 @@
 #include <AP_BoardConfig/AP_BoardConfig.h>
 #include <AP_TemperatureSensor/AP_TemperatureSensor_config.h>
 
+#include <AP_Math/AP_Math.h>
+
 //#define ESC_TELEM_DEBUG
 
-#define ESC_RPM_CHECK_TIMEOUT_US 100000UL   // timeout for motor running validity
+#define ESC_RPM_CHECK_TIMEOUT_US 210000UL   // timeout for motor running validity
 
 extern const AP_HAL::HAL& hal;
 
@@ -49,7 +51,9 @@ AP_ESC_Telem::AP_ESC_Telem()
         AP_HAL::panic("Too many AP_ESC_Telem instances");
     }
     _singleton = this;
+#if !defined(IOMCU_FW)
     AP_Param::setup_object_defaults(this, var_info);
+#endif
 }
 
 // return the average motor RPM
@@ -86,7 +90,7 @@ uint8_t AP_ESC_Telem::get_motor_frequencies_hz(uint8_t nfreqs, float* freqs) con
         float rpm;
         if (get_rpm(i, rpm)) {
             freqs[valid_escs++] = rpm * (1.0f / 60.0f);
-        } else if (_rpm_data[i].last_update_us > 0) {
+        } else if (was_rpm_data_ever_reported(_rpm_data[i])) {
             // if we have ever received data on an ESC, mark it as valid but with no data
             // this prevents large frequency shifts when ESCs disappear
             freqs[valid_escs++] = 0.0f;
@@ -103,15 +107,39 @@ uint32_t AP_ESC_Telem::get_active_esc_mask() const {
     const uint32_t now = AP_HAL::millis();
     uint32_t now_us = AP_HAL::micros();
     for (uint8_t i = 0; i < ESC_TELEM_MAX_ESCS; i++) {
-        if (now - _telem_data[i].last_update_ms >= ESC_TELEM_DATA_TIMEOUT_MS
-            && now_us - _rpm_data[i].last_update_us >= ESC_RPM_DATA_TIMEOUT_US) {
-            continue;
-        }
-        if (_telem_data[i].last_update_ms == 0 && _rpm_data[i].last_update_us == 0) {
+        if (_telem_data[i].last_update_ms == 0 && !was_rpm_data_ever_reported(_rpm_data[i])) {
             // have never seen telem from this ESC
             continue;
         }
+        if (_telem_data[i].stale(now)
+            && !rpm_data_within_timeout(_rpm_data[i], now_us, ESC_RPM_DATA_TIMEOUT_US)) {
+            continue;
+        }
         ret |= (1U << i);
+    }
+    return ret;
+}
+
+// return an active ESC for the purposes of reporting (e.g. in the OSD)
+uint8_t AP_ESC_Telem::get_max_rpm_esc() const
+{
+    uint32_t ret = 0;
+    float max_rpm = 0;
+    const uint32_t now = AP_HAL::millis();
+    const uint32_t now_us = AP_HAL::micros();
+    for (uint8_t i = 0; i < ESC_TELEM_MAX_ESCS; i++) {
+        if (_telem_data[i].last_update_ms == 0 && !was_rpm_data_ever_reported(_rpm_data[i])) {
+            // have never seen telem from this ESC
+            continue;
+        }
+        if (_telem_data[i].stale(now)
+            && !rpm_data_within_timeout(_rpm_data[i], now_us, ESC_RPM_DATA_TIMEOUT_US)) {
+            continue;
+        }
+        if (_rpm_data[i].rpm > max_rpm) {
+            max_rpm = _rpm_data[i].rpm;
+            ret = i;
+        }
     }
     return ret;
 }
@@ -123,7 +151,7 @@ uint8_t AP_ESC_Telem::get_num_active_escs() const {
 }
 
 // return the whether all the motors in servo_channel_mask are running
-bool AP_ESC_Telem::are_motors_running(uint32_t servo_channel_mask, float min_rpm) const
+bool AP_ESC_Telem::are_motors_running(uint32_t servo_channel_mask, float min_rpm, float max_rpm) const
 {
     const uint32_t now = AP_HAL::micros();
 
@@ -131,10 +159,13 @@ bool AP_ESC_Telem::are_motors_running(uint32_t servo_channel_mask, float min_rpm
         if (BIT_IS_SET(servo_channel_mask, i)) {
             const volatile AP_ESC_Telem_Backend::RpmData& rpmdata = _rpm_data[i];
             // we choose a relatively strict measure of health so that failsafe actions can rely on the results
-            if (now < rpmdata.last_update_us || now - rpmdata.last_update_us > ESC_RPM_CHECK_TIMEOUT_US) {
+            if (!rpm_data_within_timeout(rpmdata, now, ESC_RPM_CHECK_TIMEOUT_US)) {
                 return false;
             }
             if (rpmdata.rpm < min_rpm) {
+                return false;
+            }
+            if ((max_rpm > 0) && (rpmdata.rpm > max_rpm)) {
                 return false;
             }
         }
@@ -148,7 +179,7 @@ bool AP_ESC_Telem::is_telemetry_active(uint32_t servo_channel_mask) const
     for (uint8_t i = 0; i < ESC_TELEM_MAX_ESCS; i++) {
         if (BIT_IS_SET(servo_channel_mask, i)) {
             // no data received
-            if (get_last_telem_data_ms(i) == 0 && _rpm_data[i].last_update_us == 0) {
+            if (get_last_telem_data_ms(i) == 0 && !was_rpm_data_ever_reported(_rpm_data[i])) {
                 return false;
             }
         }
@@ -170,8 +201,7 @@ bool AP_ESC_Telem::get_rpm(uint8_t esc_index, float& rpm) const
     }
 
     const uint32_t now = AP_HAL::micros();
-    if (rpmdata.last_update_us > 0 && (now >= rpmdata.last_update_us)
-        && (now - rpmdata.last_update_us < ESC_RPM_DATA_TIMEOUT_US)) {
+    if (rpm_data_within_timeout(rpmdata, now, ESC_RPM_DATA_TIMEOUT_US)) {
         const float slew = MIN(1.0f, (now - rpmdata.last_update_us) * rpmdata.update_rate_hz * (1.0f / 1e6f));
         rpm = (rpmdata.prev_rpm + (rpmdata.rpm - rpmdata.prev_rpm) * slew);
 
@@ -197,7 +227,7 @@ bool AP_ESC_Telem::get_raw_rpm(uint8_t esc_index, float& rpm) const
 
     const uint32_t now = AP_HAL::micros();
 
-    if (now < rpmdata.last_update_us || now - rpmdata.last_update_us > ESC_RPM_DATA_TIMEOUT_US) {
+    if (!rpm_data_within_timeout(rpmdata, now, ESC_RPM_DATA_TIMEOUT_US)) {
         return false;
     }
 
@@ -209,7 +239,7 @@ bool AP_ESC_Telem::get_raw_rpm(uint8_t esc_index, float& rpm) const
 bool AP_ESC_Telem::get_temperature(uint8_t esc_index, int16_t& temp) const
 {
     if (esc_index >= ESC_TELEM_MAX_ESCS
-        || AP_HAL::millis() - _telem_data[esc_index].last_update_ms > ESC_TELEM_DATA_TIMEOUT_MS
+        || _telem_data[esc_index].stale()
         || !(_telem_data[esc_index].types & (AP_ESC_Telem_Backend::TelemetryType::TEMPERATURE | AP_ESC_Telem_Backend::TelemetryType::TEMPERATURE_EXTERNAL))) {
         return false;
     }
@@ -221,7 +251,7 @@ bool AP_ESC_Telem::get_temperature(uint8_t esc_index, int16_t& temp) const
 bool AP_ESC_Telem::get_motor_temperature(uint8_t esc_index, int16_t& temp) const
 {
     if (esc_index >= ESC_TELEM_MAX_ESCS
-        || AP_HAL::millis() - _telem_data[esc_index].last_update_ms > ESC_TELEM_DATA_TIMEOUT_MS
+        || _telem_data[esc_index].stale()
         || !(_telem_data[esc_index].types & (AP_ESC_Telem_Backend::TelemetryType::MOTOR_TEMPERATURE | AP_ESC_Telem_Backend::TelemetryType::MOTOR_TEMPERATURE_EXTERNAL))) {
         return false;
     }
@@ -230,13 +260,13 @@ bool AP_ESC_Telem::get_motor_temperature(uint8_t esc_index, int16_t& temp) const
 }
 
 // get the highest ESC temperature in centi-degrees if available, returns true if there is valid data for at least one ESC
-bool AP_ESC_Telem::get_highest_motor_temperature(int16_t& temp) const
+bool AP_ESC_Telem::get_highest_temperature(int16_t& temp) const
 {
     uint8_t valid_escs = 0;
 
     for (uint8_t i = 0; i < ESC_TELEM_MAX_ESCS; i++) {
         int16_t temp_temp;
-        if (get_motor_temperature(i, temp_temp)) {
+        if (get_temperature(i, temp_temp)) {
             temp = MAX(temp, temp_temp);
             valid_escs++;
         }
@@ -249,7 +279,7 @@ bool AP_ESC_Telem::get_highest_motor_temperature(int16_t& temp) const
 bool AP_ESC_Telem::get_current(uint8_t esc_index, float& amps) const
 {
     if (esc_index >= ESC_TELEM_MAX_ESCS
-        || AP_HAL::millis() - _telem_data[esc_index].last_update_ms > ESC_TELEM_DATA_TIMEOUT_MS
+        || _telem_data[esc_index].stale()
         || !(_telem_data[esc_index].types & AP_ESC_Telem_Backend::TelemetryType::CURRENT)) {
         return false;
     }
@@ -261,7 +291,7 @@ bool AP_ESC_Telem::get_current(uint8_t esc_index, float& amps) const
 bool AP_ESC_Telem::get_voltage(uint8_t esc_index, float& volts) const
 {
     if (esc_index >= ESC_TELEM_MAX_ESCS
-        || AP_HAL::millis() - _telem_data[esc_index].last_update_ms > ESC_TELEM_DATA_TIMEOUT_MS
+        || _telem_data[esc_index].stale()
         || !(_telem_data[esc_index].types & AP_ESC_Telem_Backend::TelemetryType::VOLTAGE)) {
         return false;
     }
@@ -273,7 +303,7 @@ bool AP_ESC_Telem::get_voltage(uint8_t esc_index, float& volts) const
 bool AP_ESC_Telem::get_consumption_mah(uint8_t esc_index, float& consumption_mah) const
 {
     if (esc_index >= ESC_TELEM_MAX_ESCS
-        || AP_HAL::millis() - _telem_data[esc_index].last_update_ms > ESC_TELEM_DATA_TIMEOUT_MS
+        || _telem_data[esc_index].stale()
         || !(_telem_data[esc_index].types & AP_ESC_Telem_Backend::TelemetryType::CONSUMPTION)) {
         return false;
     }
@@ -285,7 +315,7 @@ bool AP_ESC_Telem::get_consumption_mah(uint8_t esc_index, float& consumption_mah
 bool AP_ESC_Telem::get_usage_seconds(uint8_t esc_index, uint32_t& usage_s) const
 {
     if (esc_index >= ESC_TELEM_MAX_ESCS
-        || AP_HAL::millis() - _telem_data[esc_index].last_update_ms > ESC_TELEM_DATA_TIMEOUT_MS
+        || _telem_data[esc_index].stale()
         || !(_telem_data[esc_index].types & AP_ESC_Telem_Backend::TelemetryType::USAGE)) {
         return false;
     }
@@ -302,8 +332,8 @@ void AP_ESC_Telem::send_esc_telemetry_mavlink(uint8_t mav_chan)
         return;
     }
 
-    uint32_t now = AP_HAL::millis();
-    uint32_t now_us = AP_HAL::micros();
+    const uint32_t now = AP_HAL::millis();
+    const uint32_t now_us = AP_HAL::micros();
 
     // loop through groups of 4 ESCs
     const uint8_t esc_offset = constrain_int16(mavlink_offset, 0, ESC_TELEM_MAX_ESCS-1);
@@ -322,8 +352,8 @@ void AP_ESC_Telem::send_esc_telemetry_mavlink(uint8_t mav_chan)
         for (uint8_t j=0; j<4; j++) {
             const uint8_t esc_id = (i * 4 + j) + esc_offset;
             if (esc_id < ESC_TELEM_MAX_ESCS &&
-                (now - _telem_data[esc_id].last_update_ms <= ESC_TELEM_DATA_TIMEOUT_MS ||
-                 now_us - _rpm_data[esc_id].last_update_us <= ESC_RPM_DATA_TIMEOUT_US)) {
+                (!_telem_data[esc_id].stale(now) ||
+                 rpm_data_within_timeout(_rpm_data[esc_id], now_us, ESC_RPM_DATA_TIMEOUT_US))) {
                 all_stale = false;
                 break;
             }
@@ -414,7 +444,7 @@ void AP_ESC_Telem::update_telem_data(const uint8_t esc_index, const AP_ESC_Telem
     // can only get slightly more up-to-date information that perhaps they were expecting or might
     // read data that has just gone stale - both of these are safe and avoid the overhead of locking
 
-    if (esc_index >= ESC_TELEM_MAX_ESCS) {
+    if (esc_index >= ESC_TELEM_MAX_ESCS || data_mask == 0) {
         return;
     }
 
@@ -466,17 +496,16 @@ void AP_ESC_Telem::update_rpm(const uint8_t esc_index, const float new_rpm, cons
 
     _have_data = true;
 
-    const uint32_t now = AP_HAL::micros();
+    const uint32_t now = MAX(1U ,AP_HAL::micros()); // don't allow a value of 0 in, as we use this as a flag in places
     volatile AP_ESC_Telem_Backend::RpmData& rpmdata = _rpm_data[esc_index];
     const auto last_update_us = rpmdata.last_update_us;
 
     rpmdata.prev_rpm = rpmdata.rpm;
     rpmdata.rpm = new_rpm;
-    if (now > last_update_us) { // cope with wrapping
-        rpmdata.update_rate_hz = 1.0e6f / (now - last_update_us);
-    }
+    rpmdata.update_rate_hz = 1.0e6f / constrain_uint32((now - last_update_us), 100, 1000000U*10U); // limit the update rate 0.1Hz to 10KHz 
     rpmdata.last_update_us = now;
     rpmdata.error_rate = error_rate;
+    rpmdata.data_valid = true;
 
 #ifdef ESC_TELEM_DEBUG
     hal.console->printf("RPM: rate=%.1fhz, rpm=%f)\n", rpmdata.update_rate_hz, new_rpm);
@@ -485,23 +514,27 @@ void AP_ESC_Telem::update_rpm(const uint8_t esc_index, const float new_rpm, cons
 
 void AP_ESC_Telem::update()
 {
+#if HAL_LOGGING_ENABLED
     AP_Logger *logger = AP_Logger::get_singleton();
+#endif
 
-    // Push received telemetry data into the logging system
-    if (logger && logger->logging_enabled()) {
+    const uint32_t now_us = AP_HAL::micros();
 
-        for (uint8_t i = 0; i < ESC_TELEM_MAX_ESCS; i++) {
+    for (uint8_t i = 0; i < ESC_TELEM_MAX_ESCS; i++) {
+#if HAL_LOGGING_ENABLED
+        // Push received telemetry data into the logging system
+        if (logger && logger->logging_enabled()) {
             if (_telem_data[i].last_update_ms != _last_telem_log_ms[i]
                 || _rpm_data[i].last_update_us != _last_rpm_log_us[i]) {
 
                 float rpm = 0.0f;
                 get_rpm(i, rpm);
-                float rawrpm = 0.0f;
-                get_raw_rpm(i, rawrpm);
+                float raw_rpm = 0.0f;
+                get_raw_rpm(i, raw_rpm);
 
                 // Write ESC status messages
                 //   id starts from 0
-                //   rpm is eRPM (rpm * 100)
+                //   rpm, raw_rpm is eRPM (in RPM units)
                 //   voltage is in Volt
                 //   current is in Ampere
                 //   esc_temp is in centi-degrees Celsius
@@ -512,8 +545,8 @@ void AP_ESC_Telem::update()
                     LOG_PACKET_HEADER_INIT(uint8_t(LOG_ESC_MSG)),
                     time_us     : AP_HAL::micros64(),
                     instance    : i,
-                    rpm         : (int32_t) rpm * 100,
-                    raw_rpm     : (int32_t) rawrpm * 100,
+                    rpm         : rpm,
+                    raw_rpm     : raw_rpm,
                     voltage     : _telem_data[i].voltage,
                     current     : _telem_data[i].current,
                     esc_temp    : _telem_data[i].temperature_cdeg,
@@ -526,7 +559,31 @@ void AP_ESC_Telem::update()
                 _last_rpm_log_us[i] = _rpm_data[i].last_update_us;
             }
         }
+#endif  // HAL_LOGGING_ENABLED
+
+        if ((now_us - _rpm_data[i].last_update_us) > ESC_RPM_DATA_TIMEOUT_US) {
+            _rpm_data[i].data_valid = false;
+        }
     }
+}
+
+bool AP_ESC_Telem::rpm_data_within_timeout (const volatile AP_ESC_Telem_Backend::RpmData &instance, const uint32_t now_us, const uint32_t timeout_us)
+{
+    // easy case, has the time window been crossed so it's invalid
+    if ((now_us - instance.last_update_us) > timeout_us) {
+        return false;
+    }
+    // we never got a valid data, to it's invalid
+    if (instance.last_update_us == 0) {
+        return false;
+    }
+    // check if things generally expired on us, this is done to handle time wrapping
+    return instance.data_valid;
+}
+
+bool AP_ESC_Telem::was_rpm_data_ever_reported (const volatile AP_ESC_Telem_Backend::RpmData &instance)
+{
+    return instance.last_update_us > 0;
 }
 
 #if AP_SCRIPTING_ENABLED

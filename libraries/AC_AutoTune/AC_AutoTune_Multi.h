@@ -19,6 +19,10 @@
 
 #pragma once
 
+#include "AC_AutoTune_config.h"
+
+#if AC_AUTOTUNE_ENABLED
+
 #include "AC_AutoTune.h"
 
 class AC_AutoTune_Multi : public AC_AutoTune
@@ -53,7 +57,7 @@ protected:
     // load test gains
     void load_test_gains() override;
 
-    // reset the test vaariables for multi
+    // reset the test variables for multi
     void reset_vehicle_test_variables() override {};
 
     // reset the update gain variables for multi
@@ -62,7 +66,7 @@ protected:
     void test_init() override;
     void test_run(AxisType test_axis, const float dir_sign) override;
 
-    // send intermittant updates to user on status of tune
+    // send intermittent updates to user on status of tune
     void do_gcs_announcements() override;
 
     // send post test updates to user
@@ -104,6 +108,7 @@ protected:
     // reverse direction for twitch test
     bool twitch_reverse_direction() override { return !positive_direction; }
 
+#if HAL_LOGGING_ENABLED
     void Log_AutoTune() override;
     void Log_AutoTuneDetails() override;
     void Log_AutoTuneSweep() override {
@@ -112,6 +117,7 @@ protected:
     }
     void Log_Write_AutoTune(uint8_t axis, uint8_t tune_step, float meas_target, float meas_min, float meas_max, float new_gain_rp, float new_gain_rd, float new_gain_sp, float new_ddt);
     void Log_Write_AutoTuneDetails(float angle_cd, float rate_cds);
+#endif
 
     void set_tune_sequence() override {
         tune_seq[0] = RD_UP;
@@ -160,7 +166,7 @@ private:
     // P is increased until we achieve our target within a reasonable time
     void updating_angle_p_up(float &tune_p, float tune_p_max, float tune_p_step_ratio, float angle_target, float meas_angle_max, float meas_rate_min, float meas_rate_max);
 
-    // report gain formating helper
+    // report gain formatting helper
     void report_axis_gains(const char* axis_string, float rate_P, float rate_I, float rate_D, float angle_P, float max_accel) const;
 
     // parameters
@@ -168,3 +174,5 @@ private:
     AP_Float aggressiveness;      // aircraft response aggressiveness to be tuned
     AP_Float min_d;               // minimum rate d gain allowed during tuning
 };
+
+#endif  // AC_AUTOTUNE_ENABLED

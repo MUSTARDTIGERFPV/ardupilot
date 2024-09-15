@@ -104,8 +104,8 @@ PC4 MPU9250_DRDY INPUT
 # use active buzzer instead
 PA1 BUZZER OUTPUT GPIO(80) LOW
 define HAL_BUZZER_PIN 80
-define HAL_BUZZER_ON 1
-define HAL_BUZZER_OFF 0
+
+
 
 # I2C
 PB6 I2C1_SCL I2C1
@@ -137,13 +137,8 @@ COMPASS AK8963:probe_mpu9250 0 ROTATION_YAW_90
 define HAL_PROBE_EXTERNAL_I2C_COMPASSES
 define HAL_I2C_INTERNAL_MASK 0
 
-# external baro probing
-define HAL_PROBE_EXTERNAL_I2C_BAROS
-
 # no onboard SD, filesystem support disabled until flash logging implemented
 #define HAL_OS_FATFS_IO 1
-#define HAL_BOARD_LOG_DIRECTORY "/APM/LOGS"
-#define HAL_BOARD_TERRAIN_DIRECTORY "/APM/TERRAIN"
 
 # OSD support
 define OSD_ENABLED 1
@@ -162,8 +157,11 @@ define HAL_BATT_VOLT_SCALE 11
 define HAL_BATT_CURR_SCALE 25
 
 # minimal drivers to reduce flash usage
-include ../include/minimal.inc
-define AP_BATTMON_SYNTHETIC_CURRENT_ENABLED 0
+include ../include/no_bootloader_DFU.inc
 
 # enable IMU fast sampling
 define HAL_DEFAULT_INS_FAST_SAMPLE 1
+
+# no space for bootloader in firmware image:
+include ../include/minimize_fpv_osd.inc
+include ../include/no_bootloader_DFU.inc

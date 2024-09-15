@@ -22,10 +22,13 @@
 #include "SIM_ToneAlarm.h"
 #include "SIM_EFI_MegaSquirt.h"
 #include "SIM_RichenPower.h"
+#include "SIM_Loweheiser.h"
 #include "SIM_FETtecOneWireESC.h"
 #include "SIM_IntelligentEnergy24.h"
 #include "SIM_Ship.h"
 #include "SIM_GPS.h"
+#include "SIM_DroneCANDevice.h"
+#include "SIM_ADSB_Sagetech_MXS.h"
 
 namespace SITL {
 
@@ -90,6 +93,10 @@ struct sitl_fdm {
 
     // earthframe wind, from backends that know it
     Vector3f wind_ef;
+
+    // AGL altitude, usually derived from the terrain database in simulation:
+    float height_agl;
+
 };
 
 // number of rc output channels
@@ -150,9 +157,6 @@ public:
     // throttle when motors are active
     float throttle;
 
-    // height above ground
-    float height_agl;
-    
     static const struct AP_Param::GroupInfo var_info[];
     static const struct AP_Param::GroupInfo var_info2[];
     static const struct AP_Param::GroupInfo var_info3[];
@@ -176,6 +180,7 @@ public:
     AP_Vector3f mag_offdiag[HAL_COMPASS_MAX_SENSORS];  // off-diagonal corrections
     AP_Int8 mag_orient[HAL_COMPASS_MAX_SENSORS];   // external compass orientation
     AP_Int8 mag_fail[HAL_COMPASS_MAX_SENSORS];   // fail magnetometer, 1 for no data, 2 for freeze
+    AP_Int8 mag_save_ids;
     AP_Float servo_speed; // servo speed in seconds
 
     AP_Float sonar_glitch;// probability between 0-1 that any given sonar sample will read as max distance
@@ -203,6 +208,7 @@ public:
     AP_Vector3f gps_pos_offset[2];  // XYZ position of the GPS antenna phase centre relative to the body frame origin (m)
     AP_Float gps_accuracy[2];
     AP_Vector3f gps_vel_err[2]; // Velocity error offsets in NED (x = N, y = E, z = D)
+    AP_Int8 gps_jam[2]; // jamming simulation enable
 
     // initial offset on GPS lat/lon, used to shift origin
     AP_Float gps_init_lat_ofs;
@@ -217,6 +223,16 @@ public:
     AP_Int8  rc_fail;     // fail RC input
     AP_Int8  rc_chancount; // channel count
     AP_Int8  float_exception; // enable floating point exception checks
+    AP_Int32 can_servo_mask; // mask of servos/escs coming from CAN
+
+#if HAL_NUM_CAN_IFACES
+    enum class CANTransport : uint8_t {
+      MulticastUDP = 0,
+      SocketCAN = 1
+    };
+    AP_Enum<CANTransport> can_transport[HAL_NUM_CAN_IFACES];
+#endif
+
     AP_Int8  flow_enable; // enable simulated optflow
     AP_Int16 flow_rate; // optflow data rate (Hz)
     AP_Int8  flow_delay; // optflow data delay
@@ -235,6 +251,7 @@ public:
     AP_Int16 loop_rate_hz;
     AP_Int16 loop_time_jitter_us;
     AP_Int32 on_hardware_output_enable_mask;  // mask of output channels passed through to actual hardware
+    AP_Int16 on_hardware_relay_enable_mask;   // mask of relays passed through to actual hardware
 
     AP_Float uart_byte_loss_pct;
 
@@ -282,6 +299,8 @@ public:
     enum EFIType {
         EFI_TYPE_NONE = 0,
         EFI_TYPE_MS = 1,
+        EFI_TYPE_LOWEHEISER = 2,
+        EFI_TYPE_HIRTH = 8,
     };
     
     AP_Int8  efi_type;
@@ -307,6 +326,11 @@ public:
     AP_Int16  mag_delay; // magnetometer data delay in ms
 
     // ADSB related run-time options
+    enum class ADSBType {
+        Shortcut = 0,
+        SageTechMXS = 3,
+    };
+    AP_Enum<ADSBType> adsb_types;  // bitmask of active ADSB types
     AP_Int16 adsb_plane_count;
     AP_Float adsb_radius_m;
     AP_Float adsb_altitude_m;
@@ -391,19 +415,6 @@ public:
         AP_Float hdg; // 0 to 360
     } opos;
 
-    AP_Int8 _safety_switch_state;
-
-    AP_HAL::Util::safety_state safety_switch_state() const {
-        return (AP_HAL::Util::safety_state)_safety_switch_state.get();
-    }
-    void force_safety_off() {
-        _safety_switch_state.set((uint8_t)AP_HAL::Util::SAFETY_ARMED);
-    }
-    bool force_safety_on() {
-        _safety_switch_state.set((uint8_t)AP_HAL::Util::SAFETY_DISARMED);
-        return true;
-    }
-
     uint16_t irlock_port;
 
     time_t start_time_UTC;
@@ -446,8 +457,14 @@ public:
     ToneAlarm tonealarm_sim;
     SIM_Precland precland_sim;
     RichenPower richenpower_sim;
+#if AP_SIM_LOWEHEISER_ENABLED
+    Loweheiser loweheiser_sim;
+#endif
     IntelligentEnergy24 ie24_sim;
     FETtecOneWireESC fetteconewireesc_sim;
+#if AP_TEST_DRONECAN_DRIVERS
+    DroneCANDevice dronecan_sim;
+#endif
 
     // ESC telemetry
     AP_Int8 esc_telem;
@@ -488,7 +505,7 @@ public:
     AP_Float imu_temp_end;
     AP_Float imu_temp_tconst;
     AP_Float imu_temp_fixed;
-    AP_InertialSensor::TCal imu_tcal[INS_MAX_INSTANCES];
+    AP_InertialSensor_TCal imu_tcal[INS_MAX_INSTANCES];
 #endif
 
     // IMU control parameters

@@ -13,10 +13,14 @@
    along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 /*
-  suppport for serial connected AHRS systems
+  support for serial connected AHRS systems
  */
 
 #define ALLOW_DOUBLE_MATH_FUNCTIONS
+
+#include "AP_ExternalAHRS_config.h"
+
+#if AP_EXTERNAL_AHRS_VECTORNAV_ENABLED
 
 #include "AP_ExternalAHRS_VectorNav.h"
 #include <AP_Math/AP_Math.h>
@@ -27,11 +31,10 @@
 #include <AP_InertialSensor/AP_InertialSensor.h>
 #include <GCS_MAVLink/GCS.h>
 #include <AP_Logger/AP_Logger.h>
+#include <AP_SerialManager/AP_SerialManager.h>
 #include <AP_Common/NMEA.h>
 #include <stdio.h>
 #include <AP_BoardConfig/AP_BoardConfig.h>
-
-#if HAL_EXTERNAL_AHRS_ENABLED
 
 extern const AP_HAL::HAL &hal;
 
@@ -173,7 +176,7 @@ AP_ExternalAHRS_VectorNav::AP_ExternalAHRS_VectorNav(AP_ExternalAHRS *_frontend,
     auto &sm = AP::serialmanager();
     uart = sm.find_serial(AP_SerialManager::SerialProtocol_AHRS, 0);
     if (!uart) {
-        GCS_SEND_TEXT(MAV_SEVERITY_INFO, "ExternalAHRS no UART");
+        GCS_SEND_TEXT(MAV_SEVERITY_INFO, "VectorNav ExternalAHRS no UART");
         return;
     }
     baudrate = sm.find_baudrate(AP_SerialManager::SerialProtocol_AHRS, 0);
@@ -185,13 +188,13 @@ AP_ExternalAHRS_VectorNav::AP_ExternalAHRS_VectorNav(AP_ExternalAHRS *_frontend,
     last_pkt2 = new VN_packet2;
 
     if (!pktbuf || !last_pkt1 || !last_pkt2) {
-        AP_BoardConfig::allocation_error("ExternalAHRS");
+        AP_BoardConfig::allocation_error("VectorNav ExternalAHRS");
     }
 
     if (!hal.scheduler->thread_create(FUNCTOR_BIND_MEMBER(&AP_ExternalAHRS_VectorNav::update_thread, void), "AHRS", 2048, AP_HAL::Scheduler::PRIORITY_SPI, 0)) {
-        AP_HAL::panic("Failed to start ExternalAHRS update thread");
+        AP_HAL::panic("VectorNav Failed to start ExternalAHRS update thread");
     }
-    GCS_SEND_TEXT(MAV_SEVERITY_INFO, "ExternalAHRS initialised");
+    GCS_SEND_TEXT(MAV_SEVERITY_INFO, "VectorNav ExternalAHRS initialised");
 }
 
 /*
@@ -205,6 +208,8 @@ bool AP_ExternalAHRS_VectorNav::check_uart()
         return false;
     }
     WITH_SEMAPHORE(state.sem);
+    // ensure we own the uart
+    uart->begin(0);
     uint32_t n = uart->available();
     if (n == 0) {
         return false;
@@ -280,8 +285,8 @@ reset:
     return true;
 }
 
-// Send command to read given register number and wait for responce
-// Only run from thread! This blocks until a responce is received
+// Send command to read given register number and wait for response
+// Only run from thread! This blocks until a response is received
 #define READ_REQUEST_RETRY_MS 500
 void AP_ExternalAHRS_VectorNav::wait_register_responce(const uint8_t register_num)
 {
@@ -472,6 +477,7 @@ void AP_ExternalAHRS_VectorNav::process_packet1(const uint8_t *b)
                                   int32_t(pkt1.positionLLA[1] * 1.0e7),
                                   int32_t(pkt1.positionLLA[2] * 1.0e2),
                                   Location::AltFrame::ABSOLUTE};
+        state.last_location_update_us = AP_HAL::micros();
         state.have_location = true;
     }
 
@@ -505,36 +511,6 @@ void AP_ExternalAHRS_VectorNav::process_packet1(const uint8_t *b)
 
         AP::ins().handle_external(ins);
     }
-
-
-    // @LoggerMessage: EAH1
-    // @Description: External AHRS data
-    // @Field: TimeUS: Time since system startup
-    // @Field: Roll: euler roll
-    // @Field: Pitch: euler pitch
-    // @Field: Yaw: euler yaw
-    // @Field: VN: velocity north
-    // @Field: VE: velocity east
-    // @Field: VD: velocity down
-    // @Field: Lat: latitude
-    // @Field: Lon: longitude
-    // @Field: Alt: altitude AMSL
-    // @Field: UXY: uncertainty in XY position
-    // @Field: UV: uncertainty in velocity
-    // @Field: UR: uncertainty in roll
-    // @Field: UP: uncertainty in pitch
-    // @Field: UY: uncertainty in yaw
-
-    AP::logger().WriteStreaming("EAH1", "TimeUS,Roll,Pitch,Yaw,VN,VE,VD,Lat,Lon,Alt,UXY,UV,UR,UP,UY",
-                       "sdddnnnDUmmnddd", "F000000GG000000",
-                       "QffffffLLffffff",
-                       AP_HAL::micros64(),
-                       pkt1.ypr[2], pkt1.ypr[1], pkt1.ypr[0],
-                       pkt1.velNED[0], pkt1.velNED[1], pkt1.velNED[2],
-                       int32_t(pkt1.positionLLA[0]*1.0e7), int32_t(pkt1.positionLLA[1]*1.0e7),
-                       float(pkt1.positionLLA[2]),
-                       pkt1.posU, pkt1.velU,
-                       pkt1.yprU[2], pkt1.yprU[1], pkt1.yprU[0]);
 }
 
 /*
@@ -579,8 +555,10 @@ void AP_ExternalAHRS_VectorNav::process_packet2(const uint8_t *b)
                                 Location::AltFrame::ABSOLUTE};
         state.have_origin = true;
     }
-
-    AP::gps().handle_external(gps);
+    uint8_t instance;
+    if (AP::gps().get_first_external_instance(instance)) {
+        AP::gps().handle_external(gps, instance);
+    }
 }
 
 /*
@@ -643,6 +621,7 @@ void AP_ExternalAHRS_VectorNav::process_packet_VN_100(const uint8_t *b)
         AP::ins().handle_external(ins);
     }
 
+#if HAL_LOGGING_ENABLED
     // @LoggerMessage: EAH3
     // @Description: External AHRS data
     // @Field: TimeUS: Time since system startup
@@ -673,7 +652,7 @@ void AP_ExternalAHRS_VectorNav::process_packet_VN_100(const uint8_t *b)
                        state.accel[0], state.accel[1], state.accel[2],
                        state.gyro[0], state.gyro[1], state.gyro[2],
                        state.quat[0], state.quat[1], state.quat[2], state.quat[3]);
-
+#endif  // HAL_LOGGING_ENABLED
 }
 
 
@@ -739,21 +718,21 @@ void AP_ExternalAHRS_VectorNav::get_filter_status(nav_filter_status &status) con
     memset(&status, 0, sizeof(status));
     if (type == TYPE::VN_300) {
         if (last_pkt1 && last_pkt2) {
-            status.flags.initalized = 1;
+            status.flags.initalized = true;
         }
         if (healthy() && last_pkt2) {
-            status.flags.attitude = 1;
-            status.flags.vert_vel = 1;
-            status.flags.vert_pos = 1;
+            status.flags.attitude = true;
+            status.flags.vert_vel = true;
+            status.flags.vert_pos = true;
 
             const struct VN_packet2 &pkt2 = *last_pkt2;
             if (pkt2.GPS1Fix >= 3) {
-                status.flags.horiz_vel = 1;
-                status.flags.horiz_pos_rel = 1;
-                status.flags.horiz_pos_abs = 1;
-                status.flags.pred_horiz_pos_rel = 1;
-                status.flags.pred_horiz_pos_abs = 1;
-                status.flags.using_gps = 1;
+                status.flags.horiz_vel = true;
+                status.flags.horiz_pos_rel = true;
+                status.flags.horiz_pos_abs = true;
+                status.flags.pred_horiz_pos_rel = true;
+                status.flags.pred_horiz_pos_abs = true;
+                status.flags.using_gps = true;
             }
         }
     } else {
@@ -819,5 +798,4 @@ void AP_ExternalAHRS_VectorNav::send_status_report(GCS_MAVLINK &link) const
                                        mag_var, 0, 0);
 }
 
-#endif  // HAL_EXTERNAL_AHRS_ENABLED
-
+#endif  // AP_EXTERNAL_AHRS_VECTORNAV_ENABLED

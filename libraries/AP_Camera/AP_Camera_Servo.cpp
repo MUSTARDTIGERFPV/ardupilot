@@ -1,6 +1,6 @@
 #include "AP_Camera_Servo.h"
 
-#if AP_CAMERA_ENABLED
+#if AP_CAMERA_SERVO_ENABLED
 
 #include <SRV_Channel/SRV_Channel.h>
 
@@ -44,7 +44,7 @@ bool AP_Camera_Servo::trigger_pic()
 }
 
 // configure camera
-void AP_Camera_Servo::configure(float shooting_mode, float shutter_speed, float aperture, float ISO, float exposure_type, float cmd_id, float engine_cutoff_time)
+void AP_Camera_Servo::configure(float shooting_mode, float shutter_speed, float aperture, float ISO, int32_t exposure_type, int32_t cmd_id, float engine_cutoff_time)
 {
     // designed to control Blackmagic Micro Cinema Camera (BMMCC) cameras
     // if the message contains non zero values then use them for the below functions
@@ -68,4 +68,4 @@ void AP_Camera_Servo::configure(float shooting_mode, float shutter_speed, float 
     }
 }
 
-#endif // AP_CAMERA_ENABLED
+#endif // AP_CAMERA_SERVO_ENABLED

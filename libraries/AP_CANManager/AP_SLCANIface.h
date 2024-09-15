@@ -17,9 +17,11 @@
 
 #pragma once
 
-#include <AP_HAL/AP_HAL.h>
+#include "AP_CANManager_config.h"
 
-#if HAL_MAX_CAN_PROTOCOL_DRIVERS
+#if AP_CAN_SLCAN_ENABLED
+
+#include <AP_HAL/AP_HAL.h>
 #include "AP_HAL/utility/RingBuffer.h"
 #include <AP_Param/AP_Param.h>
 
@@ -109,7 +111,7 @@ public:
     void reset_params();
 
     // Overriden methods
-    bool set_event_handle(AP_HAL::EventHandle* evt_handle) override;
+    bool set_event_handle(AP_HAL::BinarySemaphore *sem_handle) override;
     uint16_t getNumFilters() const override;
     uint32_t getErrorCount() const override;
     void get_stats(ExpandingString &) override;
@@ -139,4 +141,4 @@ protected:
 
 }
 
-#endif
+#endif  // AP_CAN_SLCAN_ENABLED

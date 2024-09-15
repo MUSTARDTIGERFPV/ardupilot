@@ -16,8 +16,6 @@
   parent class for aircraft simulators
 */
 
-#define ALLOW_DOUBLE_MATH_FUNCTIONS
-
 #include "SIM_Aircraft.h"
 
 #include <stdio.h>
@@ -73,9 +71,9 @@ Aircraft::Aircraft(const char *frame_str) :
         sitl->ahrs_rotation_inv = sitl->ahrs_rotation.transposed();
     }
 
-    // init rangefinder array to -1 to signify no data
+    // init rangefinder array to NaN to signify no data
     for (uint8_t i = 0; i < ARRAY_SIZE(rangefinder_m); i++){
-        rangefinder_m[i] = -1.0f;
+        rangefinder_m[i] = nanf("");
     }
 }
 
@@ -300,9 +298,9 @@ void Aircraft::sync_frame_time(void)
 
     uint32_t now_ms = last_wall_time_us / 1000ULL;
     float dt_wall = (now_ms - last_fps_report_ms) * 0.001;
-    if (dt_wall > 2.0) {
+    if (dt_wall > 0.01) {  // 0.01s average
+        achieved_rate_hz = (frame_counter - last_frame_count) / dt_wall;
 #if 0
-        const float achieved_rate_hz = (frame_counter - last_frame_count) / dt_wall;
         ::printf("Rate: target:%.1f achieved:%.1f speedup %.1f/%.1f\n",
                  rate_hz*target_speedup, achieved_rate_hz,
                  achieved_rate_hz/rate_hz, target_speedup);
@@ -458,6 +456,7 @@ void Aircraft::fill_fdm(struct sitl_fdm &fdm)
         last_speedup = sitl->speedup;
     }
 
+#if HAL_LOGGING_ENABLED
     // for EKF comparison log relhome pos and velocity at loop rate
     static uint16_t last_ticks;
     uint16_t ticks = AP::scheduler().ticks();
@@ -473,15 +472,18 @@ void Aircraft::fill_fdm(struct sitl_fdm &fdm)
 // @Field: VE: Velocity east
 // @Field: VD: Velocity down
 // @Field: As: Airspeed
+// @Field: ASpdU: Achieved simulation speedup value
         Vector3d pos = get_position_relhome();
         Vector3f vel = get_velocity_ef();
-        AP::logger().WriteStreaming("SIM2", "TimeUS,PN,PE,PD,VN,VE,VD,As",
-                                    "Qdddffff",
+        AP::logger().WriteStreaming("SIM2", "TimeUS,PN,PE,PD,VN,VE,VD,As,ASpdU",
+                                    "Qdddfffff",
                                     AP_HAL::micros64(),
                                     pos.x, pos.y, pos.z,
                                     vel.x, vel.y, vel.z,
-                                    airspeed_pitot);
+                                    airspeed_pitot,
+                                    achieved_rate_hz/rate_hz);
     }
+#endif
 }
 
 // returns perpendicular height to surface downward-facing rangefinder
@@ -490,7 +492,7 @@ float Aircraft::perpendicular_distance_to_rangefinder_surface() const
 {
     switch ((Rotation)sitl->sonar_rot.get()) {
     case Rotation::ROTATION_PITCH_270:
-        return sitl->height_agl;
+        return sitl->state.height_agl;
     case ROTATION_NONE ... ROTATION_YAW_315:
         return sitl->measure_distance_at_angle_bf(location, sitl->sonar_rot.get()*45);
     default:
@@ -590,7 +592,7 @@ void Aircraft::set_speedup(float speedup)
     setup_frame_time(rate_hz, speedup);
 }
 
-void Aircraft::update_model(const struct sitl_input &input)
+void Aircraft::update_home()
 {
     if (!home_is_set) {
         if (sitl == nullptr) {
@@ -602,8 +604,16 @@ void Aircraft::update_model(const struct sitl_input &input)
         loc.alt = sitl->opos.alt.get() * 1.0e2;
         set_start_location(loc, sitl->opos.hdg.get());
     }
+}
+
+void Aircraft::update_model(const struct sitl_input &input)
+{
     local_ground_level = 0.0f;
-    update(input);
+    if (sitl != nullptr) {
+        update(input);
+    } else {
+        time_advance();
+    }
 }
 
 /*
@@ -993,7 +1003,7 @@ void Aircraft::update_external_payload(const struct sitl_input &input)
     }
 
     if (precland && precland->is_enabled()) {
-        precland->update(get_location(), get_position_relhome());
+        precland->update(get_location());
         if (precland->_over_precland_base) {
             local_ground_level += precland->_device_height;
         }
@@ -1003,6 +1013,13 @@ void Aircraft::update_external_payload(const struct sitl_input &input)
     if (richenpower) {
         richenpower->update(input);
     }
+
+#if AP_SIM_LOWEHEISER_ENABLED
+    // update Loweheiser generator
+    if (loweheiser) {
+        loweheiser->update();
+    }
+#endif
 
     if (fetteconewireesc) {
         fetteconewireesc->update(*this);
@@ -1016,6 +1033,12 @@ void Aircraft::update_external_payload(const struct sitl_input &input)
     if (ie24) {
         ie24->update(input);
     }
+
+#if AP_TEST_DRONECAN_DRIVERS
+    if (dronecan) {
+        dronecan->update();
+    }
+#endif
 }
 
 void Aircraft::add_shove_forces(Vector3f &rot_accel, Vector3f &body_accel)
@@ -1077,6 +1100,13 @@ float Aircraft::get_local_updraft(const Vector3d &currentPos)
             thermals_r[0] =  30.0;
             thermals_x[0] = -180.0;
             thermals_y[0] = -260.0;
+            break;
+        case 4:
+            n_thermals = 1;
+            thermals_w[0] =  5.0;
+            thermals_r[0] =  30.0;
+            thermals_x[0] =  0;
+            thermals_y[0] =  0;
             break;
         default:
             AP_BoardConfig::config_error("Bad thermal scenario");

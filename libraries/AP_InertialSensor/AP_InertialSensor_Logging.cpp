@@ -1,3 +1,7 @@
+#include <AP_Logger/AP_Logger_config.h>
+
+#if HAL_LOGGING_ENABLED
+
 #include "AP_InertialSensor.h"
 #include "AP_InertialSensor_Backend.h"
 
@@ -20,9 +24,9 @@ void AP_InertialSensor_Backend::Write_ACC(const uint8_t instance, const uint64_t
 }
 
 // Write GYR data packet: raw gyro data
-void AP_InertialSensor_Backend::Write_GYR(const uint8_t instance, const uint64_t sample_us, const Vector3f &gyro) const
+void AP_InertialSensor_Backend::Write_GYR(const uint8_t instance, const uint64_t sample_us, const Vector3f &gyro, bool use_sample_timestamp) const
 {
-        const uint64_t now = AP_HAL::micros64();
+        const uint64_t now = use_sample_timestamp?sample_us:AP_HAL::micros64();
         const struct log_GYR pkt{
             LOG_PACKET_HEADER_INIT(LOG_GYR_MSG),
             time_us   : now,
@@ -111,7 +115,7 @@ bool AP_InertialSensor::BatchSampler::Write_ISBH(const float sample_rate_hz) con
         sensor_type    : (uint8_t)type,
         instance       : instance_to_write,
         multiplier     : multiplier,
-        sample_count   : (uint16_t)_required_count,
+        sample_count   : (uint16_t)_real_required_count,
         sample_us      : measurement_started_us,
         sample_rate_hz : sample_rate_hz,
     };
@@ -188,3 +192,5 @@ void AP_InertialSensor::write_notch_log_messages() const
         }
     }
 }
+
+#endif  // HAL_LOGGING_ENABLED

@@ -33,34 +33,18 @@ class AC_AttitudeControl_Heli : public AC_AttitudeControl {
 public:
     AC_AttitudeControl_Heli( AP_AHRS_View &ahrs,
                         const AP_MultiCopter &aparm,
-                        AP_MotorsHeli& motors) :
-        AC_AttitudeControl(ahrs, aparm, motors),
-        _pid_rate_roll(AC_ATC_HELI_RATE_RP_P, AC_ATC_HELI_RATE_RP_I, AC_ATC_HELI_RATE_RP_D, AC_ATC_HELI_RATE_RP_FF, AC_ATC_HELI_RATE_RP_IMAX, AC_ATTITUDE_HELI_RATE_RP_FF_FILTER, AC_ATC_HELI_RATE_RP_FILT_HZ, 0.0f),
-        _pid_rate_pitch(AC_ATC_HELI_RATE_RP_P, AC_ATC_HELI_RATE_RP_I, AC_ATC_HELI_RATE_RP_D, AC_ATC_HELI_RATE_RP_FF, AC_ATC_HELI_RATE_RP_IMAX, AC_ATTITUDE_HELI_RATE_RP_FF_FILTER, AC_ATC_HELI_RATE_RP_FILT_HZ, 0.0f),
-        _pid_rate_yaw(AC_ATC_HELI_RATE_YAW_P, AC_ATC_HELI_RATE_YAW_I, AC_ATC_HELI_RATE_YAW_D, AC_ATC_HELI_RATE_YAW_FF, AC_ATC_HELI_RATE_YAW_IMAX, AC_ATTITUDE_HELI_RATE_Y_FF_FILTER, AC_ATC_HELI_RATE_YAW_FILT_HZ, 0.0f)
-        {
-            AP_Param::setup_object_defaults(this, var_info);
-
-            // initialise flags
-            _flags_heli.limit_roll = false;
-            _flags_heli.limit_pitch = false;
-            _flags_heli.limit_yaw = false;
-            _flags_heli.leaky_i = true;
-            _flags_heli.flybar_passthrough = false;
-            _flags_heli.tail_passthrough = false;
-            _flags_heli.do_piro_comp = false;
-        }
+                        AP_MotorsHeli& motors);
 
     // pid accessors
     AC_PID& get_rate_roll_pid() override { return _pid_rate_roll; }
     AC_PID& get_rate_pitch_pid() override { return _pid_rate_pitch; }
     AC_PID& get_rate_yaw_pid() override { return _pid_rate_yaw; }
+    const AC_PID& get_rate_roll_pid() const override { return _pid_rate_roll; }
+    const AC_PID& get_rate_pitch_pid() const override { return _pid_rate_pitch; }
+    const AC_PID& get_rate_yaw_pid() const override { return _pid_rate_yaw; }
 
     // passthrough_bf_roll_pitch_rate_yaw - roll and pitch are passed through directly, body-frame rate target for yaw
     void passthrough_bf_roll_pitch_rate_yaw(float roll_passthrough, float pitch_passthrough, float yaw_rate_bf_cds) override;
-
-    // Integrate vehicle rate into _att_error_rot_vec_rad
-    void integrate_bf_rate_error_to_angle_errors();
 
     // subclass non-passthrough too, for external gyro, no flybar
     void input_rate_bf_roll_pitch_yaw(float roll_rate_bf_cds, float pitch_rate_bf_cds, float yaw_rate_bf_cds) override;
@@ -82,9 +66,6 @@ public:
         _flags_heli.tail_passthrough = tail_passthrough; 
     }
 
-    // do_piro_comp - controls whether piro-comp is active or not
-    void do_piro_comp(bool piro_comp) { _flags_heli.do_piro_comp = piro_comp; }
-
     // set_hover_roll_scalar - scales Hover Roll Trim parameter. To be used by vehicle code according to vehicle condition.
     void set_hover_roll_trim_scalar(float scalar) override {_hover_roll_trim_scalar = constrain_float(scalar, 0.0f, 1.0f);}
 
@@ -104,7 +85,10 @@ public:
     void set_inverted_flight(bool inverted) override {
         _inverted_flight = inverted;
     }
-    
+
+    // set the PID notch sample rates
+    void set_notch_sample_rate(float sample_rate) override;
+
     // user settable parameters
     static const struct AP_Param::GroupInfo var_info[];
 
@@ -112,14 +96,13 @@ private:
 
     // To-Do: move these limits flags into the heli motors class
     struct AttControlHeliFlags {
-        uint8_t limit_roll          :   1;  // 1 if we have requested larger roll angle than swash can physically move
-        uint8_t limit_pitch         :   1;  // 1 if we have requested larger pitch angle than swash can physically move
-        uint8_t limit_yaw           :   1;  // 1 if we have requested larger yaw angle than tail servo can physically move
         uint8_t leaky_i             :   1;  // 1 if we should use leaky i term for body-frame rate to motor stage
         uint8_t flybar_passthrough  :   1;  // 1 if we should pass through pilots roll & pitch input directly to swash-plate
         uint8_t tail_passthrough    :   1;  // 1 if we should pass through pilots yaw input to tail
-        uint8_t do_piro_comp        :   1;  // 1 if we should do pirouette compensation on roll/pitch
     } _flags_heli;
+
+    // Integrate vehicle rate into _att_error_rot_vec_rad
+    void integrate_bf_rate_error_to_angle_errors();
 
     //
     // body-frame rate controller

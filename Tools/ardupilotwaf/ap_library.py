@@ -239,6 +239,25 @@ class ap_library_check_headers(Task.Task):
     def keyword(self):
         return 'Checking included headers'
 
+def custom_flags_check(tgen):
+    '''
+     check for tasks marked as having custom cpp or c flags
+     a library can do this by setting AP_LIB_EXTRA_CXXFLAGS and AP_LIB_EXTRA_CFLAGS
+
+     For example add this is the configure section of the library, using AP_DDS as an example:
+
+        cfg.env.AP_LIB_EXTRA_CXXFLAGS['AP_DDS'] = ['-DSOME_CXX_FLAG']
+        cfg.env.AP_LIB_EXTRA_CFLAGS['AP_DDS'] = ['-DSOME_C_FLAG']
+    '''
+    if not tgen.name.startswith("objs/"):
+        return
+    libname = tgen.name[5:]
+    if libname in tgen.env.AP_LIB_EXTRA_CXXFLAGS:
+        tgen.env.CXXFLAGS.extend(tgen.env.AP_LIB_EXTRA_CXXFLAGS[libname])
+    if libname in tgen.env.AP_LIB_EXTRA_CFLAGS:
+        tgen.env.CFLAGS.extend(tgen.env.AP_LIB_EXTRA_CFLAGS[libname])
+
+
 def double_precision_check(tasks):
     '''check for tasks marked as double precision'''
 
@@ -251,11 +270,15 @@ def double_precision_check(tasks):
                     double_tasks.append([library, s])
 
             src = str(t.inputs[0]).split('/')[-2:]
-            if src in double_tasks:
-                single_precision_option='-fsingle-precision-constant'
+            double_library = t.env.DOUBLE_PRECISION_LIBRARIES.get(src[0],False)
+
+            if double_library or src in double_tasks:
                 t.env.CXXFLAGS = t.env.CXXFLAGS[:]
-                if single_precision_option in t.env.CXXFLAGS:
-                    t.env.CXXFLAGS.remove(single_precision_option)
+                for opt in ['-fsingle-precision-constant', '-cl-single-precision-constant']:
+                    try:
+                        t.env.CXXFLAGS.remove(opt)
+                    except ValueError:
+                        pass
                 t.env.CXXFLAGS.append("-DALLOW_DOUBLE_MATH_FUNCTIONS")
 
 
@@ -284,6 +307,7 @@ def ap_library_register_for_check(self):
     if not hasattr(self, 'compiled_tasks'):
         return
 
+    custom_flags_check(self)
     double_precision_check(self.compiled_tasks)
     if self.env.ENABLE_ONVIF:
         gsoap_library_check(self.bld, self.compiled_tasks)
@@ -298,4 +322,7 @@ def ap_library_register_for_check(self):
 def configure(cfg):
     cfg.env.AP_LIBRARIES_OBJECTS_KW = dict()
     cfg.env.AP_LIB_EXTRA_SOURCES = dict()
+    cfg.env.AP_LIB_EXTRA_CXXFLAGS = dict()
+    cfg.env.AP_LIB_EXTRA_CFLAGS = dict()
     cfg.env.DOUBLE_PRECISION_SOURCES = dict()
+    cfg.env.DOUBLE_PRECISION_LIBRARIES = dict()

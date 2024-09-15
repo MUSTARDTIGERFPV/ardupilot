@@ -47,6 +47,7 @@ public:
     friend class Tailsitter_Transition;
 
     friend class Mode;
+    friend class ModeManual;
     friend class ModeAuto;
     friend class ModeRTL;
     friend class ModeAvoidADSB;
@@ -155,7 +156,6 @@ public:
         int16_t  target_climb_rate;
         int16_t  climb_rate;
         float    throttle_mix;
-        float    speed_scaler;
         uint8_t  transition_state;
         uint8_t  assist;
     };
@@ -180,6 +180,18 @@ public:
      */
     bool in_vtol_land_descent(void) const;
 
+    // Should we allow stick mixing from the pilot
+    bool allow_stick_mixing() const;
+
+    /*
+      should we disable the TECS controller?
+      only called when in an auto-throttle mode
+     */
+    bool should_disable_TECS() const;
+
+    // Get pilot throttle input with deadzone, this will return 50% throttle in failsafe!
+    float get_throttle_input() const;
+
 private:
     AP_AHRS &ahrs;
 
@@ -201,11 +213,11 @@ private:
     AC_Loiter *loiter_nav;
     
     // maximum vertical velocity the pilot may request
-    AP_Int16 pilot_velocity_z_max_up;
-    AP_Int16 pilot_velocity_z_max_dn;
+    AP_Float pilot_speed_z_max_up;
+    AP_Float pilot_speed_z_max_dn;
 
     // vertical acceleration the pilot may request
-    AP_Int16 pilot_accel_z;
+    AP_Float pilot_accel_z;
 
     // air mode state: OFF, ON, ASSISTED_FLIGHT_ONLY
     AirMode air_mode;
@@ -222,9 +234,6 @@ private:
 
     // check for quadplane assistance needed
     bool should_assist(float aspeed, bool have_airspeed);
-
-    // update transition handling
-    void update_transition(void);
 
     // check for an EKF yaw reset
     void check_yaw_reset(void);
@@ -340,8 +349,8 @@ private:
     uint32_t alt_error_start_ms;
     bool in_alt_assist;
 
-    // landing speed in cm/s
-    AP_Int16 land_speed_cms;
+    // landing speed in m/s
+    AP_Float land_final_speed;
 
     // QRTL start altitude, meters
     AP_Int16 qrtl_alt;
@@ -388,6 +397,35 @@ private:
     AP_Float acro_pitch_rate;
     AP_Float acro_yaw_rate;
 
+    // gain from forward acceleration to forward throttle
+    AP_Float q_fwd_thr_gain;
+
+    // limit applied to forward pitch to prevent wing producing negative lift
+    AP_Float q_fwd_pitch_lim;
+
+    // limit applied to back pitch to prevent wing producing excessive lift
+    AP_Float q_bck_pitch_lim;
+
+    // which fwd throttle handling method is active
+    enum class ActiveFwdThr : uint8_t {
+        NONE = 0,
+        OLD  = 1,
+        NEW  = 2,
+    };
+    // override with AUX function
+    bool vfwd_enable_active;
+    
+    // specifies when the feature controlled by q_fwd_thr_gain and q_fwd_pitch_lim is used
+    enum class FwdThrUse : uint8_t {
+        OFF     = 0,
+        POSCTRL = 1,
+        ALL     = 2,
+    };
+    AP_Enum<FwdThrUse> q_fwd_thr_use;
+
+    // return which vfwd method to use
+    ActiveFwdThr get_vfwd_method(void) const;
+
     // time we last got an EKF yaw reset
     uint32_t ekfYawReset_ms;
 
@@ -403,6 +441,11 @@ private:
     bool initialised;
 
     Location last_auto_target;
+
+    float q_fwd_throttle; // forward throttle used in q modes
+    float q_fwd_pitch_lim_cd; // forward pitch limit applied when using q_fwd_throttle
+    float q_bck_pitch_lim_cd; // backward pitch limit applied when using Q_BCK_PIT_LIM
+    uint32_t q_pitch_limit_update_ms; // last time the backward pitch limit was updated
 
     // when did we last run the attitude controller?
     uint32_t last_att_control_ms;
@@ -574,6 +617,7 @@ private:
         TRANS_FAIL_TO_FW=(1<<19),
         FS_RTL=(1<<20),
         DISARMED_TILT_UP=(1<<21),
+        SCALE_FF_ANGLE_P=(1<<22),
     };
     bool option_is_set(OPTION option) const {
         return (options.get() & int32_t(option)) != 0;
@@ -583,7 +627,6 @@ private:
     AP_Float maximum_takeoff_airspeed;
     uint32_t takeoff_start_time_ms;
     uint32_t takeoff_time_limit_ms;
-    uint32_t rudder_takeoff_warn_ms;
 
     float last_land_final_agl;
 
@@ -677,6 +720,11 @@ private:
     void set_desired_spool_state(AP_Motors::DesiredSpoolState state);
 
     /*
+      limit forward pitch demand if using rotor tilt or forward flight motor to provide forward acceleration.
+     */
+    void assign_tilt_to_fwd_thr(void);
+
+    /*
       get a scaled Q_WP_SPEED based on direction of movement
      */
     float get_scaled_wp_speed(float target_bearing_deg) const;
@@ -685,6 +733,11 @@ private:
       setup scaling of roll and pitch angle P gains to match fixed wing gains
      */
     void setup_rp_fw_angle_gains(void);
+
+    /*
+      return true if forward throttle from forward_throttle_pct() should be used
+     */
+    bool allow_forward_throttle_in_vtol_mode() const;
 
 public:
     void motor_test_output();

@@ -12,13 +12,16 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
- 
-#include <AP_HAL/AP_HAL.h>
-#include "AP_EFI_Serial_MS.h"
 
-#if HAL_EFI_ENABLED
+#include "AP_EFI_config.h"
+
+#if AP_EFI_SERIAL_MS_ENABLED
+
+#include <AP_HAL/AP_HAL.h>
 #include <AP_Math/AP_Math.h>
 #include <AP_SerialManager/AP_SerialManager.h>
+
+#include "AP_EFI_Serial_MS.h"
 
 extern const AP_HAL::HAL &hal;
 
@@ -40,12 +43,15 @@ void AP_EFI_Serial_MS::update()
 
     const uint32_t expected_bytes = 2 + (RT_LAST_OFFSET - RT_FIRST_OFFSET) + 4;
     if (port->available() >= expected_bytes && read_incoming_realtime_data()) {
-        last_response_ms = now;
         copy_to_frontend();
     }
 
-    if (port->available() == 0 || now - last_response_ms > 200) {
+    const uint32_t last_request_delta = (now - last_request_ms);
+    const uint32_t available = port->available();
+    if (((last_request_delta > 150) && (available > 0)) || // nothing in our input buffer 150 ms after request
+        ((last_request_delta > 90)  && (available == 0))) { // we requested something over 90 ms ago, but didn't get any data
         port->discard_input();
+        last_request_ms = now;
         // Request an update from the realtime table (7).
         // The data we need start at offset 6 and ends at 129
         send_request(7, RT_FIRST_OFFSET, RT_LAST_OFFSET);
@@ -56,7 +62,7 @@ bool AP_EFI_Serial_MS::read_incoming_realtime_data()
 {
     // Data is parsed directly from the buffer, otherwise we would need to allocate
     // several hundred bytes for the entire realtime data table or request every
-    // value individiually
+    // value individually
     uint16_t message_length = 0;
 
     // reset checksum before reading new data
@@ -81,7 +87,7 @@ bool AP_EFI_Serial_MS::read_incoming_realtime_data()
     }
     
     // Iterate over the payload bytes 
-    for ( uint8_t offset=RT_FIRST_OFFSET; offset < (RT_FIRST_OFFSET + message_length - 1); offset++) {
+    for (uint16_t offset=RT_FIRST_OFFSET; offset < (RT_FIRST_OFFSET + message_length - 1); offset++) {
         uint8_t data = read_byte_CRC32();
         float temp_float;
         switch (offset) {
@@ -230,4 +236,4 @@ uint32_t AP_EFI_Serial_MS::CRC32_compute_byte(uint32_t crc, uint8_t data)
     return crc;
 }
 
-#endif // HAL_EFI_ENABLED
+#endif  // AP_EFI_SERIAL_MS_ENABLED

@@ -80,7 +80,6 @@ const AP_Scheduler::Task Sub::scheduler_tasks[] = {
     SCHED_TASK(three_hz_loop,          3,     75,  21),
     SCHED_TASK(update_turn_counter,   10,     50,  24),
     SCHED_TASK_CLASS(AP_Baro,             &sub.barometer,    accumulate,          50,  90,  27),
-    SCHED_TASK_CLASS(AP_Notify,           &sub.notify,       update,              50,  90,  30),
     SCHED_TASK(one_hz_loop,            1,    100,  33),
     SCHED_TASK_CLASS(GCS,                 (GCS*)&sub._gcs,   update_receive,     400, 180,  36),
     SCHED_TASK_CLASS(GCS,                 (GCS*)&sub._gcs,   update_send,        400, 550,  39),
@@ -90,17 +89,24 @@ const AP_Scheduler::Task Sub::scheduler_tasks[] = {
 #if AP_CAMERA_ENABLED
     SCHED_TASK_CLASS(AP_Camera,           &sub.camera,       update,              50,  75,  48),
 #endif
+#if HAL_LOGGING_ENABLED
     SCHED_TASK(ten_hz_logging_loop,   10,    350,  51),
     SCHED_TASK(twentyfive_hz_logging, 25,    110,  54),
     SCHED_TASK_CLASS(AP_Logger,           &sub.logger,       periodic_tasks,     400, 300,  57),
+#endif
     SCHED_TASK_CLASS(AP_InertialSensor,   &sub.ins,          periodic,           400,  50,  60),
+#if HAL_LOGGING_ENABLED
     SCHED_TASK_CLASS(AP_Scheduler,        &sub.scheduler,    update_logging,     0.1,  75,  63),
+#endif
 #if AP_RPM_ENABLED
     SCHED_TASK_CLASS(AP_RPM,              &sub.rpm_sensor,   update,              10, 200,  66),
 #endif
     SCHED_TASK(terrain_update,        10,    100,  72),
 #if AP_GRIPPER_ENABLED
     SCHED_TASK_CLASS(AP_Gripper,          &sub.g2.gripper,   update,              10,  75,  75),
+#endif
+#if STATS_ENABLED == ENABLED
+    SCHED_TASK(stats_update,           1,    200,  76),
 #endif
 #ifdef USERHOOK_FASTLOOP
     SCHED_TASK(userhook_FastLoop,    100,     75,  78),
@@ -138,7 +144,7 @@ void Sub::run_rate_controller()
     pos_control.set_dt(last_loop_time_s);
 
     //don't run rate controller in manual or motordetection modes
-    if (control_mode != MANUAL && control_mode != MOTOR_DETECT) {
+    if (control_mode != Mode::Number::MANUAL && control_mode != Mode::Number::MOTOR_DETECT) {
         // run low level rate controllers that only require IMU data and set loop time
         attitude_control.rate_controller_run();
     }
@@ -175,6 +181,7 @@ void Sub::update_batt_compass()
     }
 }
 
+#if HAL_LOGGING_ENABLED
 // ten_hz_logging_loop
 // should be run at 10hz
 void Sub::ten_hz_logging_loop()
@@ -199,7 +206,7 @@ void Sub::ten_hz_logging_loop()
     if (should_log(MASK_LOG_RCOUT)) {
         logger.Write_RCOUT();
     }
-    if (should_log(MASK_LOG_NTUN) && (mode_requires_GPS(control_mode) || !mode_has_manual_throttle(control_mode))) {
+    if (should_log(MASK_LOG_NTUN) && (sub.flightmode->requires_GPS() || !sub.flightmode->has_manual_throttle())) {
         pos_control.write_log();
     }
     if (should_log(MASK_LOG_IMU) || should_log(MASK_LOG_IMU_FAST) || should_log(MASK_LOG_IMU_RAW)) {
@@ -208,6 +215,11 @@ void Sub::ten_hz_logging_loop()
     if (should_log(MASK_LOG_CTUN)) {
         attitude_control.control_monitor_log();
     }
+#if HAL_MOUNT_ENABLED
+    if (should_log(MASK_LOG_CAMERA)) {
+        camera_mount.write_log();
+    }
+#endif
 }
 
 // twentyfive_hz_logging_loop
@@ -230,6 +242,7 @@ void Sub::twentyfive_hz_logging()
         AP::ins().Write_IMU();
     }
 }
+#endif  // HAL_LOGGING_ENABLED
 
 // three_hz_loop - 3.3hz loop
 void Sub::three_hz_loop()
@@ -253,7 +266,9 @@ void Sub::three_hz_loop()
     fence_check();
 #endif // AP_FENCE_ENABLED
 
+#if AP_SERVORELAYEVENTS_ENABLED
     ServoRelayEvents.update_events();
+#endif
 }
 
 // one_hz_loop - runs at 1Hz
@@ -265,9 +280,11 @@ void Sub::one_hz_loop()
     AP_Notify::flags.pre_arm_gps_check = position_ok();
     AP_Notify::flags.flying = motors.armed();
 
+#if HAL_LOGGING_ENABLED
     if (should_log(MASK_LOG_ANY)) {
         Log_Write_Data(LogDataID::AP_STATE, ap.value);
     }
+#endif
 
     if (!motors.armed()) {
         motors.update_throttle_range();
@@ -276,12 +293,17 @@ void Sub::one_hz_loop()
     // update assigned functions and enable auxiliary servos
     SRV_Channels::enable_aux_servos();
 
+#if HAL_LOGGING_ENABLED
     // log terrain data
     terrain_logging();
+#endif
 
     // need to set "likely flying" when armed to allow for compass
     // learning to run
     set_likely_flying(hal.util->get_soft_armed());
+
+    attitude_control.set_notch_sample_rate(AP::scheduler().get_filtered_loop_rate_hz());
+    pos_control.get_accel_z_pid().set_notch_sample_rate(AP::scheduler().get_filtered_loop_rate_hz());
 }
 
 void Sub::read_AHRS()
@@ -299,6 +321,7 @@ void Sub::update_altitude()
     // read in baro altitude
     read_barometer();
 
+#if HAL_LOGGING_ENABLED
     if (should_log(MASK_LOG_CTUN)) {
         Log_Write_Control_Tuning();
         AP::ins().write_notch_log_messages();
@@ -306,6 +329,7 @@ void Sub::update_altitude()
         gyro_fft.write_log_messages();
 #endif
     }
+#endif  // HAL_LOGGING_ENABLED
 }
 
 bool Sub::control_check_barometer()
@@ -345,5 +369,16 @@ bool Sub::get_wp_crosstrack_error_m(float &xtrack_error) const
     xtrack_error = 0;
     return true;
 }
+
+#if STATS_ENABLED == ENABLED
+/*
+  update AP_Stats
+*/
+void Sub::stats_update(void)
+{
+    g2.stats.set_flying(motors.armed());
+    g2.stats.update();
+}
+#endif
 
 AP_HAL_MAIN_CALLBACKS(&sub);

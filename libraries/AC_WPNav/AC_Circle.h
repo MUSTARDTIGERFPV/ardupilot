@@ -89,8 +89,12 @@ public:
     /// true if pilot control of radius and turn rate is enabled
     bool pilot_control_enabled() const { return (_options.get() & CircleOptions::MANUAL_CONTROL) != 0; }
 
-    /// provide rangefinder altitude
-    void set_rangefinder_alt(bool use, bool healthy, float alt_cm) { _rangefinder_available = use; _rangefinder_healthy = healthy; _rangefinder_alt_cm = alt_cm; }
+    /// true if mount roi is at circle center
+    bool roi_at_center() const { return (_options.get() & CircleOptions::ROI_AT_CENTER) != 0; }
+
+    /// provide rangefinder based terrain offset
+    /// terrain offset is the terrain's height above the EKF origin
+    void set_rangefinder_terrain_offset(bool use, bool healthy, float terrain_offset_cm) { _rangefinder_available = use; _rangefinder_healthy = healthy; _rangefinder_terrain_offset_cm = terrain_offset_cm;}
 
     /// check for a change in the radius params
     void check_param_change();
@@ -135,6 +139,7 @@ private:
         MANUAL_CONTROL           = 1U << 0,
         FACE_DIRECTION_OF_TRAVEL = 1U << 1,
         INIT_AT_CENTER           = 1U << 2, // true then the circle center will be the current location, false and the center will be 1 radius ahead
+        ROI_AT_CENTER            = 1U << 3, // true when the mount roi is at circle center
     };
 
     // parameters
@@ -148,7 +153,7 @@ private:
     float       _rate;          // rotation speed of circle in deg/sec. +ve for cw turn
     float       _yaw;           // yaw heading (normally towards circle center)
     float       _angle;         // current angular position around circle in radians (0=directly north of the center of the circle)
-    float       _angle_total;   // total angle traveled in radians
+    float       _angle_total;   // total angle travelled in radians
     float       _angular_vel;   // angular velocity in radians/sec
     float       _angular_vel_max;   // maximum velocity in radians/sec
     float       _angular_accel; // angular acceleration in radians/sec/sec
@@ -159,5 +164,5 @@ private:
     bool        _terrain_alt;           // true if _center.z is alt-above-terrain, false if alt-above-ekf-origin
     bool        _rangefinder_available; // true if range finder could be used
     bool        _rangefinder_healthy;   // true if range finder is healthy
-    float       _rangefinder_alt_cm;    // latest rangefinder altitude
+    float       _rangefinder_terrain_offset_cm; // latest rangefinder based terrain offset (e.g. terrain's height above EKF origin)
 };

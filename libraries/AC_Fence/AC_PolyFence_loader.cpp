@@ -3,6 +3,7 @@
 #if AP_FENCE_ENABLED
 
 #include <AP_Vehicle/AP_Vehicle_Type.h>
+#include <AP_BoardConfig/AP_BoardConfig.h>
 
 #ifndef AC_FENCE_DUMMY_METHODS_ENABLED
 #define AC_FENCE_DUMMY_METHODS_ENABLED  (!(APM_BUILD_TYPE(APM_BUILD_Rover) | APM_BUILD_COPTER_OR_HELI | APM_BUILD_TYPE(APM_BUILD_ArduPlane) | APM_BUILD_TYPE(APM_BUILD_ArduSub) | (AP_FENCE_ENABLED == 1)))
@@ -13,6 +14,7 @@
 #include <AP_AHRS/AP_AHRS.h>
 #include <GCS_MAVLink/GCS.h>
 #include <AP_Logger/AP_Logger.h>
+#include <AC_Fence/AC_Fence.h>
 
 #include <stdio.h>
 
@@ -26,10 +28,32 @@
 
 extern const AP_HAL::HAL& hal;
 
-static const StorageAccess fence_storage(StorageManager::StorageFence);
+static StorageAccess fence_storage(StorageManager::StorageFence);
+
+#if CONFIG_HAL_BOARD == HAL_BOARD_CHIBIOS
+#define AC_FENCE_SDCARD_FILENAME "APM/fence.stg"
+#else
+#define AC_FENCE_SDCARD_FILENAME "fence.stg"
+#endif
 
 void AC_PolyFence_loader::init()
 {
+#if AP_SDCARD_STORAGE_ENABLED
+    // check for extra storage on microsd
+    const auto *bc = AP::boardConfig();
+    if (bc != nullptr) {
+        const auto size_kb = bc->get_sdcard_fence_kb();
+        if (size_kb > 0) {
+            _failed_sdcard_storage = !fence_storage.attach_file(AC_FENCE_SDCARD_FILENAME, size_kb);
+            if (_failed_sdcard_storage) {
+                // wipe fence if storage not available, but don't
+                // save. This allows sdcard error to be fixed and
+                // reboot
+                _total.set(0);
+            }
+        }
+    }
+#endif
     if (!check_indexed()) {
         // tell the user, perhaps?
     }
@@ -189,21 +213,6 @@ bool AC_PolyFence_loader::read_latlon_from_storage(uint16_t &read_offset, Vector
     return true;
 }
 
-// load boundary point from eeprom, returns true on successful load
-// only used for converting from old storage to new storage
-bool AC_PolyFence_loader::load_point_from_eeprom(uint16_t i, Vector2l& point) const
-{
-    // sanity check index
-    if (i >= max_items()) {
-        return false;
-    }
-
-    // read fence point
-    point.x = fence_storage.read_uint32(i * sizeof(Vector2l));
-    point.y = fence_storage.read_uint32(i * sizeof(Vector2l) + sizeof(uint32_t));
-    return true;
-}
-
 bool AC_PolyFence_loader::breached() const
 {
     Location loc;
@@ -226,11 +235,14 @@ bool AC_PolyFence_loader::breached(const Location& loc) const
     pos.x = loc.lat;
     pos.y = loc.lng;
 
+    const uint16_t num_inclusion = _num_loaded_circle_inclusion_boundaries + _num_loaded_inclusion_boundaries;
+    uint16_t num_inclusion_outside = 0;
+
     // check we are inside each inclusion zone:
     for (uint8_t i=0; i<_num_loaded_inclusion_boundaries; i++) {
         const InclusionBoundary &boundary = _loaded_inclusion_boundary[i];
         if (Polygon_outside(pos, boundary.points_lla, boundary.count)) {
-            return true;
+            num_inclusion_outside++;
         }
     }
 
@@ -260,6 +272,21 @@ bool AC_PolyFence_loader::breached(const Location& loc) const
         circle_center.lng = circle.point.y;
         const float diff_cm = loc.get_distance(circle_center)*100.0f;
         if (diff_cm > circle.radius * 100.0f) {
+            num_inclusion_outside++;
+        }
+    }
+
+    if (AC_Fence::option_enabled(AC_Fence::OPTIONS::INCLUSION_UNION, _options)) {
+        // using union of inclusion areas, we are outside the fence if
+        // there is at least one inclusion areas and we are outside
+        // all of them
+        if (num_inclusion > 0 && num_inclusion == num_inclusion_outside) {
+            return true;
+        }
+    } else {
+        // using intersection of inclusion areas. We are outside if we
+        // are outside any of them
+        if (num_inclusion_outside > 0) {
             return true;
         }
     }
@@ -292,70 +319,6 @@ bool AC_PolyFence_loader::format()
     _eeprom_fence_count = 0;
     _eeprom_item_count = 0;
     return write_eos_to_storage(offset);
-}
-
-bool AC_PolyFence_loader::convert_to_new_storage()
-{
-    // sanity check total
-    _total.set(constrain_int16(_total, 0, max_items()));
-    // FIXME: ensure the fence was closed and don't load it if it was not
-    if (_total < 5) {
-        // fence was invalid.  Just format it and move on
-        return format();
-    }
-
-    if (hal.util->available_memory() < 100U + _total * sizeof(Vector2l)) {
-        return false;
-    }
-
-    Vector2l *_tmp_boundary = new Vector2l[_total];
-    if (_tmp_boundary == nullptr) {
-        return false;
-    }
-
-    // load each point from eeprom
-    bool ret = false;
-    for (uint16_t index=0; index<_total; index++) {
-        // load boundary point as lat/lon point
-        if (!load_point_from_eeprom(index, _tmp_boundary[index])) {
-            goto out;
-        }
-    }
-
-    // now store:
-    if (!format()) {
-        goto out;
-    }
-    {
-        uint16_t offset = 4; // skip magic
-        // write return point
-        if (!write_type_to_storage(offset, AC_PolyFenceType::RETURN_POINT)) {
-            return false;
-        }
-        if (!write_latlon_to_storage(offset, _tmp_boundary[0])) {
-            return false;
-        }
-        // write out polygon fence
-        fence_storage.write_uint8(offset, (uint8_t)AC_PolyFenceType::POLYGON_INCLUSION);
-        offset++;
-        fence_storage.write_uint8(offset, (uint8_t)_total-2);
-        offset++;
-        for (uint8_t i=1; i<_total-1; i++) {
-            if (!write_latlon_to_storage(offset, _tmp_boundary[i])) {
-                goto out;
-            }
-        }
-        // write eos marker
-        if (!write_eos_to_storage(offset)) {
-            goto out;
-        }
-    }
-
-    ret = true;
-
-out:
-    delete[] _tmp_boundary;
-    return ret;
 }
 
 bool AC_PolyFence_loader::scale_latlon_from_origin(const Location &origin, const Vector2l &point, Vector2f &pos_cm)
@@ -522,7 +485,7 @@ void AC_PolyFence_loader::scan_eeprom_index_fences(const AC_PolyFenceType type, 
 bool AC_PolyFence_loader::index_eeprom()
 {
     if (!formatted()) {
-        if (!convert_to_new_storage()) {
+        if (!format()) {
             return false;
         }
     }
@@ -1181,8 +1144,10 @@ bool AC_PolyFence_loader::write_fence(const AC_PolyFenceItem *new_items, uint16_
     gcs().send_text(MAV_SEVERITY_DEBUG, "Fence Indexed OK");
 #endif
 
+#if HAL_LOGGING_ENABLED
     // start logger logging new fence
     AP::logger().Write_Fence();
+#endif
 
     void_index();
 
@@ -1202,7 +1167,6 @@ bool AC_PolyFence_loader::write_fence(const AC_PolyFenceItem *new_items, uint16_
 }
 
 
-#if AC_POLYFENCE_FENCE_POINT_PROTOCOL_SUPPORT
 bool AC_PolyFence_loader::get_return_point(Vector2l &ret)
 {
     if (!check_indexed()) {
@@ -1277,7 +1241,6 @@ bool AC_PolyFence_loader::get_return_point(Vector2l &ret)
 
     return true;
 }
-#endif
 
 AC_PolyFence_loader::FenceIndex *AC_PolyFence_loader::find_first_fence(const AC_PolyFenceType type) const
 {

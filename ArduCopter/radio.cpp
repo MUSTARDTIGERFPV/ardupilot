@@ -77,13 +77,6 @@ void Copter::init_rc_out()
 }
 
 
-// enable_motor_output() - enable and output lowest possible value to motors
-void Copter::enable_motor_output()
-{
-    // enable motors
-    motors->output_min();
-}
-
 void Copter::read_radio()
 {
     const uint32_t tnow_ms = millis();
@@ -128,7 +121,7 @@ void Copter::read_radio()
     }
 
     // Log an error and enter failsafe.
-    AP::logger().Write_Error(LogErrorSubsystem::RADIO, LogErrorCode::RADIO_LATE_FRAME);
+    LOGGER_WRITE_ERROR(LogErrorSubsystem::RADIO, LogErrorCode::RADIO_LATE_FRAME);
     set_failsafe_radio(true);
 }
 

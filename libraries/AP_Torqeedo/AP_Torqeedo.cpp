@@ -22,6 +22,7 @@
 #include <SRV_Channel/SRV_Channel.h>
 #include <AP_Logger/AP_Logger.h>
 #include <GCS_MAVLink/GCS.h>
+#include <AP_SerialManager/AP_SerialManager.h>
 
 #define TORQEEDO_SERIAL_BAUD        19200   // communication is always at 19200
 #define TORQEEDO_PACKET_HEADER      0xAC    // communication packet header
@@ -345,24 +346,24 @@ void AP_Torqeedo::report_error_codes()
     // report display system errors
     const char* msg_prefix = "Torqeedo:";
     if (_display_system_state.flags.set_throttle_stop) {
-        gcs().send_text(MAV_SEVERITY_CRITICAL, "%s zero throttle required", msg_prefix);
+        GCS_SEND_TEXT(MAV_SEVERITY_CRITICAL, "%s zero throttle required", msg_prefix);
     }
     if (_display_system_state.flags.temp_warning) {
-        gcs().send_text(MAV_SEVERITY_CRITICAL, "%s high temp", msg_prefix);
+        GCS_SEND_TEXT(MAV_SEVERITY_CRITICAL, "%s high temp", msg_prefix);
     }
-    if (_display_system_state.flags.temp_warning) {
-        gcs().send_text(MAV_SEVERITY_CRITICAL, "%s batt nearly empty", msg_prefix);
+    if (_display_system_state.flags.batt_nearly_empty) {
+        GCS_SEND_TEXT(MAV_SEVERITY_CRITICAL, "%s batt nearly empty", msg_prefix);
     }
     if (_display_system_state.master_error_code > 0) {
         const char *error_string = map_master_error_code_to_string(_display_system_state.master_error_code);
         if (error_string != nullptr) {
-            gcs().send_text(
+            GCS_SEND_TEXT(
                 MAV_SEVERITY_CRITICAL, "%s err:%u %s",
                 msg_prefix,
                 _display_system_state.master_error_code,
                 error_string);
         } else {
-            gcs().send_text(
+            GCS_SEND_TEXT(
                 MAV_SEVERITY_CRITICAL, "%s err:%u",
                 msg_prefix,
                 _display_system_state.master_error_code);
@@ -371,28 +372,28 @@ void AP_Torqeedo::report_error_codes()
 
     // report motor status errors
     if (_motor_status.error_flags.overcurrent) {
-        gcs().send_text(MAV_SEVERITY_CRITICAL, "%s overcurrent", msg_prefix);
+        GCS_SEND_TEXT(MAV_SEVERITY_CRITICAL, "%s overcurrent", msg_prefix);
     }
     if (_motor_status.error_flags.blocked) {
-        gcs().send_text(MAV_SEVERITY_CRITICAL, "%s prop blocked", msg_prefix);
+        GCS_SEND_TEXT(MAV_SEVERITY_CRITICAL, "%s prop blocked", msg_prefix);
     }
     if (_motor_status.error_flags.overvoltage_static || _motor_status.error_flags.overvoltage_current) {
-        gcs().send_text(MAV_SEVERITY_CRITICAL, "%s high voltage", msg_prefix);
+        GCS_SEND_TEXT(MAV_SEVERITY_CRITICAL, "%s high voltage", msg_prefix);
     }
     if (_motor_status.error_flags.undervoltage_static || _motor_status.error_flags.undervoltage_current) {
-        gcs().send_text(MAV_SEVERITY_CRITICAL, "%s low voltage", msg_prefix);
+        GCS_SEND_TEXT(MAV_SEVERITY_CRITICAL, "%s low voltage", msg_prefix);
     }
     if (_motor_status.error_flags.overtemp_motor || _motor_status.error_flags.overtemp_pcb) {
-        gcs().send_text(MAV_SEVERITY_CRITICAL, "%s high temp", msg_prefix);
+        GCS_SEND_TEXT(MAV_SEVERITY_CRITICAL, "%s high temp", msg_prefix);
     }
     if (_motor_status.error_flags.timeout_rs485) {
-        gcs().send_text(MAV_SEVERITY_CRITICAL, "%s comm timeout", msg_prefix);
+        GCS_SEND_TEXT(MAV_SEVERITY_CRITICAL, "%s comm timeout", msg_prefix);
     }
     if (_motor_status.error_flags.temp_sensor_error) {
-        gcs().send_text(MAV_SEVERITY_CRITICAL, "%s temp sensor err", msg_prefix);
+        GCS_SEND_TEXT(MAV_SEVERITY_CRITICAL, "%s temp sensor err", msg_prefix);
     }
     if (_motor_status.error_flags.tilt) {
-        gcs().send_text(MAV_SEVERITY_CRITICAL, "%s tilted", msg_prefix);
+        GCS_SEND_TEXT(MAV_SEVERITY_CRITICAL, "%s tilted", msg_prefix);
     }
 
     // display OK if all errors cleared
@@ -405,7 +406,7 @@ void AP_Torqeedo::report_error_codes()
                              (_motor_status.error_flags_value != 0);
 
     if (!now_errored && prev_errored) {
-        gcs().send_text(MAV_SEVERITY_INFO, "%s OK", msg_prefix);
+        GCS_SEND_TEXT(MAV_SEVERITY_INFO, "%s OK", msg_prefix);
     }
 
     // record change in state and reporting time
@@ -563,6 +564,7 @@ void AP_Torqeedo::parse_message()
                         esc_temp,
                         motor_temp);
 
+#if HAL_LOGGING_ENABLED
                 // log data
                 if ((_options & options::LOG) != 0) {
                     // @LoggerMessage: TRST
@@ -591,10 +593,11 @@ void AP_Torqeedo::parse_message()
                                       _display_system_state.batt_voltage,
                                       _display_system_state.batt_current);
                 }
+#endif
 
                 // send to GCS
                 if ((_options & options::DEBUG_TO_GCS) != 0) {
-                    gcs().send_text(MAV_SEVERITY_INFO,"TRST F:%u Err:%u MV:%4.1f MC:%4.1f P:%u MT:%d B%%:%d BV:%4.1f BC:%4.1f",
+                    GCS_SEND_TEXT(MAV_SEVERITY_INFO,"TRST F:%u Err:%u MV:%4.1f MC:%4.1f P:%u MT:%d B%%:%d BV:%4.1f BC:%4.1f",
                             (unsigned)_display_system_state.flags.value,
                             (unsigned)_display_system_state.master_error_code,
                             (double)_display_system_state.motor_voltage,
@@ -624,6 +627,7 @@ void AP_Torqeedo::parse_message()
                 _display_system_setup.batt_type = _received_buff[9];
                 _display_system_setup.master_sw_version =  UINT16_VALUE(_received_buff[10], _received_buff[11]);
 
+#if HAL_LOGGING_ENABLED
                 // log data
                 if ((_options & options::LOG) != 0) {
                     // @LoggerMessage: TRSE
@@ -646,10 +650,11 @@ void AP_Torqeedo::parse_message()
                                        _display_system_setup.batt_type,
                                        _display_system_setup.master_sw_version);
                 }
+#endif
 
                 // send to GCS
                 if ((_options & options::DEBUG_TO_GCS) != 0) {
-                    gcs().send_text(MAV_SEVERITY_INFO,"TRSE:%u F:%u Mot:%u/%u Bat:%u/%u/%u%%",
+                    GCS_SEND_TEXT(MAV_SEVERITY_INFO,"TRSE:%u F:%u Mot:%u/%u Bat:%u/%u/%u%%",
                             (unsigned)_display_system_setup.master_sw_version,
                             (unsigned)_display_system_setup.flags,
                             (unsigned)_display_system_setup.motor_type,
@@ -693,6 +698,7 @@ void AP_Torqeedo::parse_message()
                         _motor_param.pcb_temp,      // esc temp
                         _motor_param.stator_temp);  // motor temp
 
+#if HAL_LOGGING_ENABLED
                 // log data
                 if ((_options & options::LOG) != 0) {
                     // @LoggerMessage: TRMP
@@ -713,10 +719,11 @@ void AP_Torqeedo::parse_message()
                                        _motor_param.pcb_temp,
                                        _motor_param.stator_temp);
                 }
+#endif
 
                 // send to GCS
                 if ((_options & options::DEBUG_TO_GCS) != 0) {
-                    gcs().send_text(MAV_SEVERITY_INFO, "TRMP: rpm:%d p:%u V:%4.1f C:%4.1f PT:%4.1f MT:%4.1f",
+                    GCS_SEND_TEXT(MAV_SEVERITY_INFO, "TRMP: rpm:%d p:%u V:%4.1f C:%4.1f PT:%4.1f MT:%4.1f",
                                                        (int)_motor_param.rpm,
                                                        (unsigned)_motor_param.power,
                                                        (double)_motor_param.voltage,
@@ -735,6 +742,7 @@ void AP_Torqeedo::parse_message()
                 _motor_status.status_flags_value = _received_buff[2];
                 _motor_status.error_flags_value = UINT16_VALUE(_received_buff[3], _received_buff[4]);
 
+#if HAL_LOGGING_ENABLED
                 // log data
                 if ((_options & options::LOG) != 0) {
                     // @LoggerMessage: TRMS
@@ -742,15 +750,16 @@ void AP_Torqeedo::parse_message()
                     // @Field: TimeUS: Time since system startup
                     // @Field: State: Motor status flags
                     // @Field: Err: Motor error flags
-                    AP::logger().Write("TRMS", "TimeUS,State,Err", "QBHH",
+                    AP::logger().Write("TRMS", "TimeUS,State,Err", "QBH",
                                        AP_HAL::micros64(),
                                        _motor_status.status_flags_value,
                                        _motor_status.error_flags_value);
                 }
+#endif
 
                 // send to GCS
                 if ((_options & options::DEBUG_TO_GCS) != 0) {
-                    gcs().send_text(MAV_SEVERITY_INFO,"TRMS S:%d Err:%d",
+                    GCS_SEND_TEXT(MAV_SEVERITY_INFO,"TRMS S:%d Err:%d",
                                    _motor_status.status_flags_value,
                                    _motor_status.error_flags_value);
                 }
@@ -1083,6 +1092,7 @@ void AP_Torqeedo::log_TRQD(bool force_logging)
     const bool health = healthy();
     int16_t actual_motor_speed = get_motor_speed_limited();
 
+#if HAL_LOGGING_ENABLED
     if ((_options & options::LOG) != 0) {
         // @LoggerMessage: TRQD
         // @Description: Torqeedo Status
@@ -1100,9 +1110,10 @@ void AP_Torqeedo::log_TRQD(bool force_logging)
                            _parse_success_count,
                            _parse_error_count);
     }
+#endif
 
     if ((_options & options::DEBUG_TO_GCS) != 0) {
-        gcs().send_text(MAV_SEVERITY_INFO,"TRQD h:%u dspd:%d spd:%d succ:%ld err:%ld",
+        GCS_SEND_TEXT(MAV_SEVERITY_INFO,"TRQD h:%u dspd:%d spd:%d succ:%ld err:%ld",
                 (unsigned)health,
                 (int)_motor_speed_desired,
                 (int)actual_motor_speed,

@@ -77,7 +77,7 @@ int16_t AP_HAL::CANIface::send(const CANFrame& frame, uint64_t tx_deadline, CanI
         } else {
             CanRxItem rx_item;
             rx_item.frame = frame;
-            rx_item.timestamp_us = AP_HAL::native_micros64();
+            rx_item.timestamp_us = AP_HAL::micros64();
             rx_item.flags = AP_HAL::CANIface::IsMAVCAN;
             add_to_rx_queue(rx_item);
         }
@@ -98,14 +98,16 @@ AP_HAL::CANFrame::CANFrame(uint32_t can_id, const uint8_t* can_data, uint8_t dat
         id(can_id),
         canfd(canfd_frame)
 {
-    if ((can_data == nullptr) || (data_len == 0) || (data_len > MaxDataLen)) {
+    const uint8_t data_len_max = canfd_frame ? MaxDataLen : NonFDCANMaxDataLen;
+    if ((can_data == nullptr) || (data_len == 0) || (data_len > data_len_max)) {
+        dlc = 0;
+        memset(data, 0, MaxDataLen);
         return;
     }
     memcpy(this->data, can_data, data_len);
-    if (data_len <= 8) {
+    memset(&this->data[data_len], 0, MaxDataLen-data_len);
+    if (data_len <= NonFDCANMaxDataLen) {
         dlc = data_len;
-    } else if (!canfd) {
-        dlc = 8;
     } else {
         /*
         Data Length Code      9  10  11  12  13  14  15

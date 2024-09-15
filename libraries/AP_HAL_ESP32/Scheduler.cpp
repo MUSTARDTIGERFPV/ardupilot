@@ -28,6 +28,7 @@
 #include "esp_task_wdt.h"
 
 #include <AP_HAL/AP_HAL.h>
+#include <AP_Scheduler/AP_Scheduler.h>
 #include <stdio.h>
 
 //#define SCHEDULERDEBUG 1
@@ -37,6 +38,8 @@ using namespace ESP32;
 extern const AP_HAL::HAL& hal;
 
 bool Scheduler::_initialized = true;
+TaskHandle_t idle_0 = NULL;
+TaskHandle_t idle_1 = NULL;
 
 Scheduler::Scheduler()
 {
@@ -45,16 +48,29 @@ Scheduler::Scheduler()
 
 void disableCore0WDT()
 {
-    TaskHandle_t idle_0 = xTaskGetIdleTaskHandleForCPU(0);
+     idle_0 = xTaskGetIdleTaskHandleForCPU(0);
     if (idle_0 == NULL || esp_task_wdt_delete(idle_0) != ESP_OK) {
         //print("Failed to remove Core 0 IDLE task from WDT");
     }
 }
+
 void disableCore1WDT()
 {
-    TaskHandle_t idle_1 = xTaskGetIdleTaskHandleForCPU(1);
+     idle_1 = xTaskGetIdleTaskHandleForCPU(1);
     if (idle_1 == NULL || esp_task_wdt_delete(idle_1) != ESP_OK) {
         //print("Failed to remove Core 1 IDLE task from WDT");
+    }
+}
+void enableCore0WDT()
+{
+    if (idle_0 != NULL && esp_task_wdt_add(idle_0) != ESP_OK) {
+        //print("Failed to add Core 0 IDLE task to WDT");
+    }
+}
+void enableCore1WDT()
+{
+    if (idle_1 != NULL && esp_task_wdt_add(idle_1) != ESP_OK) {
+        //print("Failed to add Core 1 IDLE task to WDT");
     }
 }
 
@@ -65,19 +81,69 @@ void Scheduler::init()
     printf("%s:%d \n", __PRETTY_FUNCTION__, __LINE__);
 #endif
 
-    //xTaskCreatePinnedToCore(_main_thread, "APM_MAIN", Scheduler::MAIN_SS, this, Scheduler::MAIN_PRIO, &_main_task_handle, 0);
-    xTaskCreate(_main_thread, "APM_MAIN", Scheduler::MAIN_SS, this, Scheduler::MAIN_PRIO, &_main_task_handle);
-    xTaskCreate(_timer_thread, "APM_TIMER", TIMER_SS, this, TIMER_PRIO, &_timer_task_handle);
-    xTaskCreate(_rcout_thread, "APM_RCOUT", RCOUT_SS, this, RCOUT_PRIO, &_rcout_task_handle);
-    xTaskCreate(_rcin_thread, "APM_RCIN", RCIN_SS, this, RCIN_PRIO, &_rcin_task_handle);
-    xTaskCreate(_uart_thread, "APM_UART", UART_SS, this, UART_PRIO, &_uart_task_handle);
-    xTaskCreate(_io_thread, "APM_IO", IO_SS, this, IO_PRIO, &_io_task_handle);
-    xTaskCreate(_storage_thread, "APM_STORAGE", STORAGE_SS, this, STORAGE_PRIO, &_storage_task_handle); //no actual flash writes without this, storage kinda appears to work, but does an erase on every boot and params don't persist over reset etc.
+    // disable wd while booting, as things like mounting the sd-card in the io thread can take a while, especially if there isn't hardware attached.
+    disableCore0WDT(); //FASTCPU
+    disableCore1WDT(); //SLOWCPU
 
-    //   xTaskCreate(_print_profile, "APM_PROFILE", IO_SS, this, IO_PRIO, nullptr);
 
-    //disableCore0WDT();
-    //disableCore1WDT();
+    hal.console->printf("%s:%d running with CONFIG_FREERTOS_HZ=%d\n", __PRETTY_FUNCTION__, __LINE__,CONFIG_FREERTOS_HZ);
+
+    // keep main tasks that need speed on CPU 0
+    // pin potentially slow stuff to CPU 1, as we have disabled the WDT on that core.
+    #define FASTCPU 0
+    #define SLOWCPU 1
+
+    // pin main thread to Core 0, and we'll also pin other heavy-tasks to core 1, like wifi-related.
+    if (xTaskCreatePinnedToCore(_main_thread, "APM_MAIN", Scheduler::MAIN_SS, this, Scheduler::MAIN_PRIO, &_main_task_handle,FASTCPU) != pdPASS) {
+    //if (xTaskCreate(_main_thread, "APM_MAIN", Scheduler::MAIN_SS, this, Scheduler::MAIN_PRIO, &_main_task_handle) != pdPASS) {
+        hal.console->printf("FAILED to create task _main_thread on FASTCPU\n");
+    } else {
+    	hal.console->printf("OK created task _main_thread on FASTCPU\n");
+    }
+
+    if (xTaskCreatePinnedToCore(_timer_thread, "APM_TIMER", TIMER_SS, this, TIMER_PRIO, &_timer_task_handle,FASTCPU) != pdPASS) {
+        hal.console->printf("FAILED to create task _timer_thread on FASTCPU\n");
+    } else {
+    	hal.console->printf("OK created task _timer_thread on FASTCPU\n");
+    }	
+
+    if (xTaskCreatePinnedToCore(_rcout_thread, "APM_RCOUT", RCOUT_SS, this, RCOUT_PRIO, &_rcout_task_handle,SLOWCPU) != pdPASS) {
+       hal.console->printf("FAILED to create task _rcout_thread on SLOWCPU\n");
+    } else {
+       hal.console->printf("OK created task _rcout_thread on SLOWCPU\n");
+    }
+
+    if (xTaskCreatePinnedToCore(_rcin_thread, "APM_RCIN", RCIN_SS, this, RCIN_PRIO, &_rcin_task_handle,SLOWCPU) != pdPASS) {
+       hal.console->printf("FAILED to create task _rcin_thread on SLOWCPU\n");
+    } else {
+       hal.console->printf("OK created task _rcin_thread on SLOWCPU\n");
+    }
+
+    // pin this thread to Core 1 as it keeps all teh uart/s feed data, and we need that quick.
+    if (xTaskCreatePinnedToCore(_uart_thread, "APM_UART", UART_SS, this, UART_PRIO, &_uart_task_handle,FASTCPU) != pdPASS) {
+        hal.console->printf("FAILED to create task _uart_thread on FASTCPU\n");
+    } else {
+    	hal.console->printf("OK created task _uart_thread on FASTCPU\n");
+    }	  
+
+    // we put thos on the SLOW core as it mounts the sd card, and that often isn't conencted.
+    if (xTaskCreatePinnedToCore(_io_thread, "SchedulerIO:APM_IO", IO_SS, this, IO_PRIO, &_io_task_handle,SLOWCPU) != pdPASS) {
+        hal.console->printf("FAILED to create task _io_thread on SLOWCPU\n");
+    } else {
+        hal.console->printf("OK created task _io_thread on SLOWCPU\n");
+    }	 
+
+    if (xTaskCreatePinnedToCore(_storage_thread, "APM_STORAGE", STORAGE_SS, this, STORAGE_PRIO, &_storage_task_handle,SLOWCPU) != pdPASS) { //no actual flash writes without this, storage kinda appears to work, but does an erase on every boot and params don't persist over reset etc.
+        hal.console->printf("FAILED to create task _storage_thread\n");
+    } else {
+    	hal.console->printf("OK created task _storage_thread\n");
+    }
+
+    //   xTaskCreatePinnedToCore(_print_profile, "APM_PROFILE", IO_SS, this, IO_PRIO, nullptr,SLOWCPU);
+
+    hal.console->printf("OK Sched Init, enabling WD\n");
+    enableCore0WDT();   //FASTCPU
+    //enableCore1WDT();   //we don't enable WD on SLOWCPU right now.
 
 }
 
@@ -97,7 +163,7 @@ void Scheduler::thread_create_trampoline(void *ctx)
 /*
   create a new thread
 */
-bool Scheduler::thread_create(AP_HAL::MemberProc proc, const char *name, uint32_t stack_size, priority_base base, int8_t priority)
+bool Scheduler::thread_create(AP_HAL::MemberProc proc, const char *name, uint32_t requested_stack_size, priority_base base, int8_t priority)
 {
 #ifdef SCHEDDEBUG
     printf("%s:%d \n", __PRETTY_FUNCTION__, __LINE__);
@@ -124,8 +190,9 @@ bool Scheduler::thread_create(AP_HAL::MemberProc proc, const char *name, uint32_
         { PRIORITY_RCIN, RCIN_PRIO},
         { PRIORITY_IO, IO_PRIO},
         { PRIORITY_UART, UART_PRIO},
+        { PRIORITY_NET, WIFI_PRIO1},
         { PRIORITY_STORAGE, STORAGE_PRIO},
-        { PRIORITY_SCRIPTING, IO_PRIO},
+        { PRIORITY_SCRIPTING, UART_PRIO},
     };
     for (uint8_t i=0; i<ARRAY_SIZE(priority_map); i++) {
         if (priority_map[i].base == base) {
@@ -136,9 +203,12 @@ bool Scheduler::thread_create(AP_HAL::MemberProc proc, const char *name, uint32_
             break;
         }
     }
+    // chibios has a 'thread working area', we just another 1k.
+    #define EXTRA_THREAD_SPACE 1024
+    uint32_t actual_stack_size = requested_stack_size+EXTRA_THREAD_SPACE;
 
-    void* xhandle;
-    BaseType_t xReturned = xTaskCreate(thread_create_trampoline, name, stack_size, tproc, thread_priority, &xhandle);
+    tskTaskControlBlock* xhandle;
+    BaseType_t xReturned = xTaskCreate(thread_create_trampoline, name, actual_stack_size, tproc, thread_priority, &xhandle);
     if (xReturned != pdPASS) {
         free(tproc);
         return false;
@@ -165,6 +235,7 @@ void Scheduler::delay_microseconds(uint16_t us)
         ets_delay_us(us);
     } else { // Minimum delay for FreeRTOS is 1ms
         uint32_t tick = portTICK_PERIOD_MS * 1000;
+
         vTaskDelay((us+tick-1)/tick);
     }
 }
@@ -251,9 +322,14 @@ void Scheduler::_timer_thread(void *arg)
     printf("%s:%d start\n", __PRETTY_FUNCTION__, __LINE__);
 #endif
     Scheduler *sched = (Scheduler *)arg;
+
+#if HAL_INS_DEFAULT != HAL_INS_NONE
+    // wait to ensure INS system inits unless using HAL_INS_NONE
     while (!_initialized) {
         sched->delay_microseconds(1000);
     }
+#endif
+
 #ifdef SCHEDDEBUG
     printf("%s:%d initialised\n", __PRETTY_FUNCTION__, __LINE__);
 #endif
@@ -392,7 +468,7 @@ void Scheduler::_storage_thread(void* arg)
     printf("%s:%d start \n", __PRETTY_FUNCTION__, __LINE__);
 #endif
     Scheduler *sched = (Scheduler *)arg;
-    while (!_initialized) {
+    while (!sched->_initialized) {
         sched->delay_microseconds(10000);
     }
 #ifdef SCHEDDEBUG
@@ -426,7 +502,7 @@ void Scheduler::_uart_thread(void *arg)
     printf("%s:%d start \n", __PRETTY_FUNCTION__, __LINE__);
 #endif
     Scheduler *sched = (Scheduler *)arg;
-    while (!_initialized) {
+    while (!sched->_initialized) {
         sched->delay_microseconds(2000);
     }
 #ifdef SCHEDDEBUG
@@ -466,17 +542,25 @@ void Scheduler::print_stats(void)
     // printf("loop_rate_hz: %d",get_loop_rate_hz());
 }
 
+// Run every 10s
+void Scheduler::print_main_loop_rate(void)
+{
+    static int64_t last_run = 0;
+    if (AP_HAL::millis64() - last_run > 10000) {
+        last_run = AP_HAL::millis64();
+        const float actual_loop_rate = AP::scheduler().get_filtered_loop_rate_hz();
+        const uint16_t expected_loop_rate = AP::scheduler().get_loop_rate_hz();
+        hal.console->printf("loop_rate: actual: %uHz, expected: %uHz\n",
+            (uint16_t)actual_loop_rate, (uint16_t)expected_loop_rate);
+    }
+}
+
 void IRAM_ATTR Scheduler::_main_thread(void *arg)
 {
 #ifdef SCHEDDEBUG
     printf("%s:%d start\n", __PRETTY_FUNCTION__, __LINE__);
 #endif
     Scheduler *sched = (Scheduler *)arg;
-    hal.serial(0)->begin(115200);
-    hal.serial(1)->begin(57600);
-    hal.serial(2)->begin(57600);
-    //hal.uartC->begin(921600);
-    hal.serial(3)->begin(115200);
 
 #ifndef HAL_DISABLE_ADC_DRIVER
     hal.analogin->init();
@@ -494,7 +578,9 @@ void IRAM_ATTR Scheduler::_main_thread(void *arg)
         sched->callbacks->loop();
         sched->delay_microseconds(250);
 
-        sched->print_stats(); // only runs every 60 seconds.
+        // run stats periodically
+        sched->print_stats();
+        sched->print_main_loop_rate();
     }
 }
 

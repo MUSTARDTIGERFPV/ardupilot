@@ -43,11 +43,12 @@
 #include "AP_Baro_DPS280.h"
 #include "AP_Baro_BMP388.h"
 #include "AP_Baro_Dummy.h"
-#include "AP_Baro_UAVCAN.h"
+#include "AP_Baro_DroneCAN.h"
 #include "AP_Baro_MSP.h"
 #include "AP_Baro_ExternalAHRS.h"
 #include "AP_Baro_ICP101XX.h"
 #include "AP_Baro_ICP201XX.h"
+#include "AP_Baro_BMP581.h"
 
 #include <AP_Airspeed/AP_Airspeed.h>
 #include <AP_AHRS/AP_AHRS.h>
@@ -60,10 +61,6 @@
 
 #ifndef HAL_BARO_FILTER_DEFAULT
  #define HAL_BARO_FILTER_DEFAULT 0 // turned off by default
-#endif
-
-#if !defined(HAL_PROBE_EXTERNAL_I2C_BAROS) && !HAL_MINIMIZE_FEATURES
-#define HAL_PROBE_EXTERNAL_I2C_BAROS
 #endif
 
 #ifndef HAL_BARO_PROBE_EXT_DEFAULT
@@ -173,11 +170,11 @@ const AP_Param::GroupInfo AP_Baro::var_info[] = {
     // @Increment: 1
     AP_GROUPINFO("_FLTR_RNG", 13, AP_Baro, _filter_range, HAL_BARO_FILTER_DEFAULT),
 
-#if defined(HAL_PROBE_EXTERNAL_I2C_BAROS) || defined(AP_BARO_MSP_ENABLED)
+#if AP_BARO_PROBE_EXTERNAL_I2C_BUSES || AP_BARO_MSP_ENABLED
     // @Param: _PROBE_EXT
     // @DisplayName: External barometers to probe
     // @Description: This sets which types of external i2c barometer to look for. It is a bitmask of barometer types. The I2C buses to probe is based on BARO_EXT_BUS. If BARO_EXT_BUS is -1 then it will probe all external buses, otherwise it will probe just the bus number given in BARO_EXT_BUS.
-    // @Bitmask: 0:BMP085,1:BMP280,2:MS5611,3:MS5607,4:MS5637,5:FBM320,6:DPS280,7:LPS25H,8:Keller,9:MS5837,10:BMP388,11:SPL06,12:MSP
+    // @Bitmask: 0:BMP085,1:BMP280,2:MS5611,3:MS5607,4:MS5637,5:FBM320,6:DPS280,7:LPS25H,8:Keller,9:MS5837,10:BMP388,11:SPL06,12:MSP,13:BMP581
     // @User: Advanced
     AP_GROUPINFO("_PROBE_EXT", 14, AP_Baro, _baro_probe_ext, HAL_BARO_PROBE_EXT_DEFAULT),
 #endif
@@ -408,15 +405,12 @@ void AP_Baro::update_calibration()
 // given base_pressure in Pascal
 float AP_Baro::get_altitude_difference(float base_pressure, float pressure) const
 {
-    float ret;
     float temp    = C_TO_KELVIN(get_ground_temperature());
     float scaling = pressure / base_pressure;
 
     // This is an exact calculation that is within +-2.5m of the standard
     // atmosphere tables in the troposphere (up to 11,000 m amsl).
-    ret = 153.8462f * temp * (1.0f - expf(0.190259f * logf(scaling)))-_field_elevation_active;
-
-    return ret;
+    return 153.8462f * temp * (1.0f - expf(0.190259f * logf(scaling)))-_field_elevation_active;
 }
 
 // return sea level pressure where in which the current measured pressure
@@ -534,7 +528,7 @@ float AP_Baro::get_external_temperature(const uint8_t instance) const
     // The reason for not just using the baro temperature is it tends to read high,
     // often 30 degrees above the actual temperature. That means the
     // EAS2TAS tends to be off by quite a large margin, as well as
-    // the calculation of altitude difference betweeen two pressures
+    // the calculation of altitude difference between two pressures
     // reporting a high temperature will cause the aircraft to
     // estimate itself as flying higher then it actually is.
     return MIN(get_temperature(instance), INTERNAL_TEMPERATURE_CLAMP);
@@ -587,7 +581,7 @@ void AP_Baro::init(void)
 {
     init_done = true;
 
-    // always set field elvation to zero on reboot in the case user
+    // always set field elevation to zero on reboot in the case user
     // fails to update.  TBD automate sanity checking error bounds on
     // on previously saved value at new location etc.
     if (!is_zero(_field_elevation)) {
@@ -605,15 +599,18 @@ void AP_Baro::init(void)
     if (sitl == nullptr) {
         AP_HAL::panic("No SITL pointer");
     }
+#if !AP_TEST_DRONECAN_DRIVERS
+    // use dronecan instances instead of SITL instances
     for(uint8_t i = 0; i < sitl->baro_count; i++) {
         ADD_BACKEND(new AP_Baro_SITL(*this));
     }
 #endif
+#endif
 
-#if AP_BARO_UAVCAN_ENABLED
+#if AP_BARO_DRONECAN_ENABLED
     // Detect UAVCAN Modules, try as many times as there are driver slots
     for (uint8_t i = 0; i < BARO_MAX_DRIVERS; i++) {
-        ADD_BACKEND(AP_Baro_UAVCAN::probe(*this));
+        ADD_BACKEND(AP_Baro_DroneCAN::probe(*this));
     }
 #endif
 
@@ -763,7 +760,7 @@ void AP_Baro::init(void)
 #endif
     }
 
-#ifdef HAL_PROBE_EXTERNAL_I2C_BAROS
+#if AP_BARO_PROBE_EXTERNAL_I2C_BUSES
     _probe_i2c_barometers();
 #endif
 
@@ -839,6 +836,10 @@ void AP_Baro::_probe_i2c_barometers(void)
         { PROBE_BMP388, AP_Baro_BMP388::probe, HAL_BARO_BMP388_I2C_ADDR },
         { PROBE_BMP388, AP_Baro_BMP388::probe, HAL_BARO_BMP388_I2C_ADDR2 },
 #endif
+#if AP_BARO_BMP581_ENABLED
+        { PROBE_BMP581, AP_Baro_BMP581::probe, HAL_BARO_BMP581_I2C_ADDR },
+        { PROBE_BMP581, AP_Baro_BMP581::probe, HAL_BARO_BMP581_I2C_ADDR2 },
+#endif
 #if AP_BARO_MS56XX_ENABLED
         { PROBE_MS5611, AP_Baro_MS56XX::probe_5611, HAL_BARO_MS5611_I2C_ADDR },
         { PROBE_MS5611, AP_Baro_MS56XX::probe_5611, HAL_BARO_MS5611_I2C_ADDR2 },
@@ -878,6 +879,7 @@ void AP_Baro::_probe_i2c_barometers(void)
     }
 }
 
+#if HAL_LOGGING_ENABLED
 bool AP_Baro::should_log() const
 {
     AP_Logger *logger = AP_Logger::get_singleton();
@@ -892,6 +894,7 @@ bool AP_Baro::should_log() const
     }
     return true;
 }
+#endif
 
 /*
   call update on all drivers
@@ -903,7 +906,7 @@ void AP_Baro::update(void)
     if (fabsf(_alt_offset - _alt_offset_active) > 0.01f) {
         // If there's more than 1cm difference then slowly slew to it via LPF.
         // The EKF does not like step inputs so this keeps it happy.
-        _alt_offset_active = (0.95f*_alt_offset_active) + (0.05f*_alt_offset);
+        _alt_offset_active = (0.98f*_alt_offset_active) + (0.02f*_alt_offset);
     } else {
         _alt_offset_active = _alt_offset;
     }
@@ -981,6 +984,25 @@ void AP_Baro::update(void)
     }
 #endif
 }
+
+#ifdef HAL_BUILD_AP_PERIPH
+// calibration and alt check not valid for AP_Periph
+bool AP_Baro::healthy(uint8_t instance) const {
+    // If the requested instance was outside max instances it is not healthy (it doesn't exist)
+    if (instance >= BARO_MAX_INSTANCES) {
+        return false;
+    }
+    return sensors[instance].healthy;
+}
+#else
+bool AP_Baro::healthy(uint8_t instance) const {
+    // If the requested instance was outside max instances it is not healthy (it doesn't exist)
+    if (instance >= BARO_MAX_INSTANCES) {
+        return false;
+    }
+    return sensors[instance].healthy && sensors[instance].alt_ok && sensors[instance].calibrated;
+}
+#endif
 
 /*
   update field elevation value

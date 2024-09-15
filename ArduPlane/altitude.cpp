@@ -28,6 +28,27 @@ void Plane::adjust_altitude_target()
     control_mode->update_target_altitude();
 }
 
+void Plane::check_home_alt_change(void)
+{
+    int32_t home_alt_cm = ahrs.get_home().alt;
+    if (home_alt_cm != auto_state.last_home_alt_cm && hal.util->get_soft_armed()) {
+        // cope with home altitude changing
+        const int32_t alt_change_cm = home_alt_cm - auto_state.last_home_alt_cm;
+        if (next_WP_loc.terrain_alt) {
+            /*
+              next_WP_loc for terrain alt WP are quite strange. They
+              have terrain_alt=1, but also have relative_alt=0 and
+              have been calculated to be relative to home. We need to
+              adjust for the change in home alt
+             */
+            next_WP_loc.alt += alt_change_cm;
+        }
+        // reset TECS to force the field elevation estimate to reset
+        TECS_controller.reset();
+    }
+    auto_state.last_home_alt_cm = home_alt_cm;
+}
+
 /*
   setup for a gradual glide slope to the next waypoint, if appropriate
  */
@@ -82,10 +103,10 @@ void Plane::setup_glide_slope(void)
  */
 int32_t Plane::get_RTL_altitude_cm() const
 {
-    if (g.RTL_altitude_cm < 0) {
+    if (g.RTL_altitude < 0) {
         return current_loc.alt;
     }
-    return g.RTL_altitude_cm + home.alt;
+    return g.RTL_altitude*100 + home.alt;
 }
 
 /*
@@ -191,6 +212,12 @@ void Plane::set_target_altitude_location(const Location &loc)
         target_altitude.amsl_cm += home.alt;
     }
 #if AP_TERRAIN_AVAILABLE
+    if (target_altitude.terrain_following_pending) {
+        /* we didn't get terrain data to init when we started on this
+           target, retry
+        */
+        setup_terrain_target_alt(next_WP_loc);
+    }
     /*
       if this location has the terrain_alt flag set and we know the
       terrain altitude of our current location then treat it as a
@@ -310,7 +337,7 @@ int32_t Plane::calc_altitude_error_cm(void)
 }
 
 /*
-  check for FBWB_min_altitude_cm and fence min/max altitude
+  check for cruise_alt_floor and fence min/max altitude
  */
 void Plane::check_fbwb_altitude(void)
 {
@@ -332,9 +359,9 @@ void Plane::check_fbwb_altitude(void)
     }
 #endif
 
-    if (g.FBWB_min_altitude_cm != 0) {
+    if (g.cruise_alt_floor > 0) {
         // FBWB min altitude exists
-        min_alt_cm = MAX(min_alt_cm, plane.g.FBWB_min_altitude_cm);
+        min_alt_cm = MAX(min_alt_cm, plane.g.cruise_alt_floor*100.0);
         should_check_min = true;
     }
 
@@ -448,12 +475,16 @@ bool Plane::above_location_current(const Location &loc)
   modify a destination to be setup for terrain following if
   TERRAIN_FOLLOW is enabled
  */
-void Plane::setup_terrain_target_alt(Location &loc) const
+void Plane::setup_terrain_target_alt(Location &loc)
 {
 #if AP_TERRAIN_AVAILABLE
     if (terrain_enabled_in_current_mode()) {
-        loc.change_alt_frame(Location::AltFrame::ABOVE_TERRAIN);
+        if (!loc.change_alt_frame(Location::AltFrame::ABOVE_TERRAIN)) {
+            target_altitude.terrain_following_pending = true;
+            return;
+        }
     }
+    target_altitude.terrain_following_pending = false;
 #endif
 }
 
@@ -680,9 +711,8 @@ void Plane::rangefinder_height_update(void)
     }
 
     if (rangefinder_state.in_range) {
-        // base correction is the difference between baro altitude and
-        // rangefinder estimate
-        float correction = adjusted_relative_altitude_cm()*0.01 - rangefinder_state.height_estimate;
+        // If not using terrain data, we expect zero correction when our height above target is equal to our rangefinder measurement
+        float correction = height_above_target() - rangefinder_state.height_estimate;
 
 #if AP_TERRAIN_AVAILABLE
         // if we are terrain following then correction is based on terrain data

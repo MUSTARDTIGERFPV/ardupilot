@@ -32,6 +32,11 @@ public:
     // get an individual ESC's raw rpm if available
     bool get_raw_rpm(uint8_t esc_index, float& rpm) const;
 
+    // get raw telemetry data, used by IOMCU
+    const volatile AP_ESC_Telem_Backend::TelemetryData& get_telem_data(uint8_t esc_index) const {
+        return _telem_data[esc_index];
+    }
+
     // return the average motor RPM
     float get_average_motor_rpm(uint32_t servo_channel_mask) const;
 
@@ -39,7 +44,7 @@ public:
     float get_average_motor_rpm() const { return get_average_motor_rpm(0xFFFFFFFF); }
 
     // determine whether all the motors in servo_channel_mask are running
-    bool are_motors_running(uint32_t servo_channel_mask, float min_rpm) const;
+    bool are_motors_running(uint32_t servo_channel_mask, float min_rpm, float max_rpm) const;
 
     // get an individual ESC's temperature in centi-degrees if available, returns true on success
     bool get_temperature(uint8_t esc_index, int16_t& temp) const;
@@ -48,7 +53,7 @@ public:
     bool get_motor_temperature(uint8_t esc_index, int16_t& temp) const;
 
     // get the highest ESC temperature in centi-degrees if available, returns true if there is valid data for at least one ESC
-    bool get_highest_motor_temperature(int16_t& temp) const;
+    bool get_highest_temperature(int16_t& temp) const;
 
     // get an individual ESC's current in Ampere if available, returns true on success
     bool get_current(uint8_t esc_index, float& amps) const;
@@ -78,6 +83,9 @@ public:
     // ESC_TELEM_DATA_TIMEOUT_MS
     uint32_t get_active_esc_mask() const;
 
+    // return an active ESC with the highest RPM for the purposes of reporting (e.g. in the OSD)
+    uint8_t get_max_rpm_esc() const;
+
     // return the last time telemetry data was received in ms for the given ESC or 0 if never
     uint32_t get_last_telem_data_ms(uint8_t esc_index) const {
         if (esc_index >= ESC_TELEM_MAX_ESCS) {return 0;}
@@ -87,7 +95,7 @@ public:
     // send telemetry data to mavlink
     void send_esc_telemetry_mavlink(uint8_t mav_chan);
 
-    // udpate at 10Hz to log telemetry
+    // update at 10Hz to log telemetry
     void update();
 
     // is rpm telemetry configured for the provided channel mask
@@ -96,6 +104,9 @@ public:
     // callback to update the rpm in the frontend, should be called by the driver when new data is available
     // can also be called from scripting
     void update_rpm(const uint8_t esc_index, const float new_rpm, const float error_rate);
+
+    // callback to update the data in the frontend, should be called by the driver when new data is available
+    void update_telem_data(const uint8_t esc_index, const AP_ESC_Telem_Backend::TelemetryData& new_data, const uint16_t data_mask);
 
 #if AP_SCRIPTING_ENABLED
     /*
@@ -106,8 +117,9 @@ public:
 
 private:
 
-    // callback to update the data in the frontend, should be called by the driver when new data is available
-    void update_telem_data(const uint8_t esc_index, const AP_ESC_Telem_Backend::TelemetryData& new_data, const uint16_t data_mask);
+    // helper that validates RPM data
+    static bool rpm_data_within_timeout (const volatile AP_ESC_Telem_Backend::RpmData &instance, const uint32_t now_us, const uint32_t timeout_us);
+    static bool was_rpm_data_ever_reported (const volatile AP_ESC_Telem_Backend::RpmData &instance);
 
     // rpm data
     volatile AP_ESC_Telem_Backend::RpmData _rpm_data[ESC_TELEM_MAX_ESCS];
@@ -136,4 +148,3 @@ namespace AP {
 };
 
 #endif // HAL_WITH_ESC_TELEM
-

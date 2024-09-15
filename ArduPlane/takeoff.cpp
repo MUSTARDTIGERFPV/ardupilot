@@ -29,6 +29,24 @@ bool Plane::auto_takeoff_check(void)
     }
 
     takeoff_state.last_check_ms = now;
+    
+    //check if waiting for rudder neutral after rudder arm
+    if (plane.arming.last_arm_method() == AP_Arming::Method::RUDDER &&
+        !seen_neutral_rudder) {
+        // we were armed with rudder but have not seen rudder neutral yet
+        takeoff_state.waiting_for_rudder_neutral = true;
+        // warn if we have been waiting a long time
+        if (now - takeoff_state.rudder_takeoff_warn_ms > TAKEOFF_RUDDER_WARNING_TIMEOUT) {
+            gcs().send_text(MAV_SEVERITY_WARNING, "Takeoff waiting for rudder release");
+            takeoff_state.rudder_takeoff_warn_ms = now;
+        }
+        // since we are still waiting, dont takeoff
+        return false;
+    } else {
+       // we did not arm by rudder or rudder has returned to neutral
+       // make sure we dont indicate we are in the waiting state with servo position indicator
+       takeoff_state.waiting_for_rudder_neutral = false;
+    }  
 
     // Check for bad GPS
     if (gps.status() < AP_GPS::GPS_OK_FIX_3D) {
@@ -36,7 +54,7 @@ bool Plane::auto_takeoff_check(void)
         return false;
     }
 
-    bool do_takeoff_attitude_check = !(g2.flight_options & FlightOptions::DISABLE_TOFF_ATTITUDE_CHK);
+    bool do_takeoff_attitude_check = !(flight_option_enabled(FlightOptions::DISABLE_TOFF_ATTITUDE_CHK));
 #if HAL_QUADPLANE_ENABLED
     // disable attitude check on tailsitters
     do_takeoff_attitude_check = !quadplane.tailsitter.enabled();
@@ -140,7 +158,7 @@ void Plane::takeoff_calc_roll(void)
         takeoff_roll_limit_cd = g.level_roll_limit * 100;
     } else {
         // lim1 - below altitude TKOFF_LVL_ALT, restrict roll to LEVEL_ROLL_LIMIT
-        // lim2 - above altitude (TKOFF_LVL_ALT * 3) allow full flight envelope of LIM_ROLL_CD
+        // lim2 - above altitude (TKOFF_LVL_ALT * 3) allow full flight envelope of ROLL_LIMIT_DEG
         // In between lim1 and lim2 use a scaled roll limit.
         // The *3 scheme should scale reasonably with both small and large aircraft
         const float lim1 = MAX(mode_takeoff.level_alt, 0);
@@ -167,7 +185,7 @@ void Plane::takeoff_calc_pitch(void)
         return;
     }
 
-    if (ahrs.airspeed_sensor_enabled()) {
+    if (ahrs.using_airspeed_sensor()) {
         int16_t takeoff_pitch_min_cd = get_takeoff_pitch_min_cd();
         calc_nav_pitch();
         if (nav_pitch_cd < takeoff_pitch_min_cd) {
@@ -176,7 +194,7 @@ void Plane::takeoff_calc_pitch(void)
     } else {
         if (g.takeoff_rotate_speed > 0) {
             // Rise off ground takeoff so delay rotation until ground speed indicates adequate airspeed
-            nav_pitch_cd = ((gps.ground_speed()*100) / (float)aparm.airspeed_cruise_cm) * auto_state.takeoff_pitch_cd;
+            nav_pitch_cd = (gps.ground_speed() / (float)aparm.airspeed_cruise) * auto_state.takeoff_pitch_cd;
             nav_pitch_cd = constrain_int32(nav_pitch_cd, 500, auto_state.takeoff_pitch_cd); 
         } else {
             // Doing hand or catapult launch so need at least 5 deg pitch to prevent initial height loss
@@ -220,7 +238,7 @@ int16_t Plane::get_takeoff_pitch_min_cd(void)
             return auto_state.takeoff_pitch_cd * scalar;
         }
 
-        // are we entering the region where we want to start leveling off before we reach takeoff alt?
+        // are we entering the region where we want to start levelling off before we reach takeoff alt?
         if (auto_state.sink_rate < -0.1f) {
             float sec_to_target = (remaining_height_to_target_cm * 0.01f) / (-auto_state.sink_rate);
             if (sec_to_target > 0 &&
@@ -244,7 +262,7 @@ int16_t Plane::get_takeoff_pitch_min_cd(void)
  */
 int8_t Plane::takeoff_tail_hold(void)
 {
-    bool in_takeoff = ((control_mode == &mode_auto && !auto_state.takeoff_complete) ||
+    bool in_takeoff = ((plane.flight_stage == AP_FixedWing::FlightStage::TAKEOFF) ||
                        (control_mode == &mode_fbwa && auto_state.fbwa_tdrag_takeoff_mode));
     if (!in_takeoff) {
         // not in takeoff

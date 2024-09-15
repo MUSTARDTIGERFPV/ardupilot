@@ -2,8 +2,17 @@
 
 #include "AP_Airspeed_config.h"
 
+#if AP_AIRSPEED_ENABLED
+
 #include <AP_Param/AP_Param.h>
 #include <AP_Math/AP_Math.h>
+
+#if AP_AIRSPEED_MSP_ENABLED
+#include <AP_MSP/msp.h>
+#endif
+#if AP_AIRSPEED_EXTERNAL_ENABLED
+#include <AP_ExternalAHRS/AP_ExternalAHRS.h>
+#endif
 
 class AP_Airspeed_Backend;
 
@@ -50,7 +59,7 @@ public:
 
 private:
     // state of kalman filter for airspeed ratio estimation
-    Matrix3f P; // covarience matrix
+    Matrix3f P; // covariance matrix
     const float Q0; // process noise matrix top left and middle element
     const float Q1; // process noise matrix bottom right element
     Vector3f state; // state vector
@@ -181,6 +190,7 @@ public:
         TYPE_NMEA_WATER=13,
         TYPE_MSP=14,
         TYPE_I2C_ASP5033=15,
+        TYPE_EXTERNAL=16,
         TYPE_SITL=100,
     };
 
@@ -202,6 +212,10 @@ public:
     void handle_msp(const MSP::msp_airspeed_data_message_t &pkt);
 #endif
 
+#if AP_AIRSPEED_EXTERNAL_ENABLED
+    void handle_external(const AP_ExternalAHRS::airspeed_data_message_t &pkt);
+#endif
+    
     enum class CalibrationState {
         NOT_STARTED,
         IN_PROGRESS,
@@ -328,3 +342,5 @@ private:
 namespace AP {
     AP_Airspeed *airspeed();
 };
+
+#endif  // AP_AIRSPEED_ENABLED

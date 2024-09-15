@@ -7,6 +7,7 @@
 #include <AP_gtest.h>
 
 #include <AP_Math/AP_Math.h>
+#include <AP_Math/div1000.h>
 
 const AP_HAL::HAL& hal = AP_HAL::get_HAL();
 
@@ -678,6 +679,29 @@ TEST(MathTest, FIXEDWINGTURNRATE)
     EXPECT_NEAR(-318.65771484375f, fixedwing_turn_rate(-90, 10.0f), accuracy);
     EXPECT_NEAR(318.65771484375f, fixedwing_turn_rate(90, 10.0f), accuracy);
     EXPECT_NEAR(56.187965393066406f, fixedwing_turn_rate(45, 10.0f), accuracy);
+}
+
+TEST(CRCTest, parity)
+{
+    EXPECT_EQ(parity(0b1), 1);
+    EXPECT_EQ(parity(0b10), 1);
+    EXPECT_EQ(parity(0b100), 1);
+
+    EXPECT_EQ(parity(0b11), 0);
+    EXPECT_EQ(parity(0b110), 0);
+    EXPECT_EQ(parity(0b111), 1);
+    EXPECT_EQ(parity(0b11111111), 0);
+}
+
+TEST(MathTest, div1000)
+{
+    for (uint32_t i=0; i<1000000; i++) {
+        uint64_t v;
+        EXPECT_EQ(hal.util->get_random_vals((uint8_t*)&v, sizeof(v)), true);
+        uint64_t v1 = v / 1000ULL;
+        uint64_t v2 = uint64_div1000(v);
+        EXPECT_EQ(v1, v2);
+    }
 }
 
 AP_GTEST_PANIC()

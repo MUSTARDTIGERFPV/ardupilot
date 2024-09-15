@@ -5,11 +5,7 @@
 #include "AP_BattMonitor_Backend.h"
 #include <utility>
 
-#ifndef HAL_BATTMON_INA239_ENABLED
-#define HAL_BATTMON_INA239_ENABLED defined(HAL_BATTMON_INA239_SPI_DEVICE)
-#endif
-
-#if HAL_BATTMON_INA239_ENABLED
+#if AP_BATTERY_INA239_ENABLED
 
 class AP_BattMonitor_INA239 : public AP_BattMonitor_Backend
 {
@@ -22,7 +18,6 @@ public:
     bool has_cell_voltages() const override { return false; }
     bool has_temperature() const override { return false; }
     bool has_current() const override { return true; }
-    bool reset_remaining(float percentage) override { return false; }
     bool get_cycle_count(uint16_t &cycles) const override { return false; }
 
     void init(void) override;
@@ -51,4 +46,4 @@ protected:
     float voltage_LSB;
 };
 
-#endif // HAL_BATTMON_INA239_ENABLED
+#endif // AP_BATTERY_INA239_ENABLED

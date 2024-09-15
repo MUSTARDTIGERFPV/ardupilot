@@ -15,6 +15,10 @@
 #include <AP_Rally/AP_Rally.h>
 #include <AP_Vehicle/AP_Vehicle_Type.h>
 
+#if HAL_LOGGER_FENCE_ENABLED
+    #include <AC_Fence/AC_Fence.h>
+#endif
+
 AP_Logger *AP_Logger::_singleton;
 
 extern const AP_HAL::HAL& hal;
@@ -73,6 +77,8 @@ extern const AP_HAL::HAL& hal;
 #define LOGGING_FIRST_DYNAMIC_MSGID 254
 #endif
 
+static constexpr uint16_t MAX_LOG_FILES = 500;
+static constexpr uint16_t MIN_LOG_FILES = 2;
 
 const AP_Param::GroupInfo AP_Logger::var_info[] = {
     // @Param: _BACKEND_TYPE
@@ -90,8 +96,8 @@ const AP_Param::GroupInfo AP_Logger::var_info[] = {
 
     // @Param: _DISARMED
     // @DisplayName: Enable logging while disarmed
-    // @Description: If LOG_DISARMED is set to 1 then logging will be enabled at all times including when disarmed. Logging before arming can make for very large logfiles but can help a lot when tracking down startup issues and is necessary if logging of EKF replay data is selected via the LOG_REPLAY parameter. If LOG_DISARMED is set to 2, then logging will be enabled when disarmed, but not if a USB connection is detected. This can be used to prevent unwanted data logs being generated when the vehicle is connected via USB for log downloading or parameter changes.
-    // @Values: 0:Disabled,1:Enabled,2:Disabled on USB connection
+    // @Description: If LOG_DISARMED is set to 1 then logging will be enabled at all times including when disarmed. Logging before arming can make for very large logfiles but can help a lot when tracking down startup issues and is necessary if logging of EKF replay data is selected via the LOG_REPLAY parameter. If LOG_DISARMED is set to 2, then logging will be enabled when disarmed, but not if a USB connection is detected. This can be used to prevent unwanted data logs being generated when the vehicle is connected via USB for log downloading or parameter changes. If LOG_DISARMED is set to 3 then logging will happen while disarmed, but if the vehicle never arms then the logs using the filesystem backend will be discarded on the next boot.
+    // @Values: 0:Disabled,1:Enabled,2:Disabled on USB connection,3:Discard log on reboot if never armed
     // @User: Standard
     AP_GROUPINFO("_DISARMED",  2, AP_Logger, _params.log_disarmed,       0),
 
@@ -156,14 +162,32 @@ const AP_Param::GroupInfo AP_Logger::var_info[] = {
 #if HAL_LOGGING_BLOCK_ENABLED
     // @Param: _BLK_RATEMAX
     // @DisplayName: Maximum logging rate for block backend
-    // @Description: This sets the maximum rate that streaming log messages will be logged to the mavlink backend. A value of zero means that rate limiting is disabled.
+    // @Description: This sets the maximum rate that streaming log messages will be logged to the block backend. A value of zero means that rate limiting is disabled.
     // @Units: Hz
     // @Range: 0 1000
     // @Increment: 0.1
     // @User: Standard
     AP_GROUPINFO("_BLK_RATEMAX", 10, AP_Logger, _params.blk_ratemax, 0),
 #endif
-    
+
+    // @Param: _DARM_RATEMAX
+    // @DisplayName: Maximum logging rate when disarmed
+    // @Description: This sets the maximum rate that streaming log messages will be logged to any backend when disarmed. A value of zero means that the normal backend rate limit is applied.
+    // @Units: Hz
+    // @Range: 0 1000
+    // @Increment: 0.1
+    // @User: Standard
+    AP_GROUPINFO("_DARM_RATEMAX",  11, AP_Logger, _params.disarm_ratemax, 0),
+
+    // @Param: _MAX_FILES
+    // @DisplayName: Maximum number of log files
+    // @Description: This sets the maximum number of log file that will be written on dataflash or sd card before starting to rotate log number. Limit is capped at 500 logs.
+    // @Range: 2 500
+    // @Increment: 1
+    // @User: Advanced
+    // @RebootRequired: True
+    AP_GROUPINFO("_MAX_FILES", 12, AP_Logger, _params.max_log_files, MAX_LOG_FILES),
+
     AP_GROUPEND
 };
 
@@ -187,7 +211,7 @@ void AP_Logger::Init(const struct LogStructure *structures, uint8_t num_types)
 
     if (hal.util->was_watchdog_armed()) {
         GCS_SEND_TEXT(MAV_SEVERITY_INFO, "Forcing logging for watchdog reset");
-        _params.log_disarmed.set(1);
+        _params.log_disarmed.set(LogDisarmed::LOG_WHILE_DISARMED);
     }
 #if CONFIG_HAL_BOARD == HAL_BOARD_SITL
     validate_structures(structures, num_types);
@@ -809,6 +833,14 @@ uint16_t AP_Logger::get_num_logs(void) {
     return backends[0]->get_num_logs();
 }
 
+uint16_t AP_Logger::get_max_num_logs() {
+    const auto max_logs = constrain_uint16(_params.max_log_files.get(), MIN_LOG_FILES, MAX_LOG_FILES);
+    if (_params.max_log_files.get() != max_logs) {
+        _params.max_log_files.set_and_save_ifchanged(static_cast<int16_t>(max_logs));
+    }
+    return static_cast<uint16_t>(_params.max_log_files.get());
+}
+
 /* we're started if any of the backends are started */
 bool AP_Logger::logging_started(void) {
     for (uint8_t i=0; i< _next_backend; i++) {
@@ -898,6 +930,20 @@ void AP_Logger::Write_Fence()
     FOR_EACH_BACKEND(Write_Fence());
 }
 #endif
+
+void AP_Logger::Write_NamedValueFloat(const char *name, float value)
+{
+    WriteStreaming(
+        "NVF",
+        "TimeUS,Name,Value",
+        "s#-",
+        "F--",
+        "QNf",
+        AP_HAL::micros(),
+        name,
+        value
+        );
+}
 
 // output a FMT message for each backend if not already done so
 void AP_Logger::Safe_Write_Emit_FMT(log_write_fmt *f)
@@ -1461,17 +1507,11 @@ void AP_Logger::Write_Error(LogErrorSubsystem sub_system,
 }
 
 /*
-  return true if we should log while disarmed
+  return true if we are in a logging persistance state, where we keep
+  logging after a disarm or an arming failure
  */
-bool AP_Logger::log_while_disarmed(void) const
+bool AP_Logger::in_log_persistance(void) const
 {
-    if (_force_log_disarmed) {
-        return true;
-    }
-    if (_params.log_disarmed == 1 || (_params.log_disarmed == 2 && !hal.gpio->usb_connected())) {
-        return true;
-    }
-
     uint32_t now = AP_HAL::millis();
     uint32_t persist_ms = HAL_LOGGER_ARM_PERSIST*1000U;
     if (_force_long_log_persist) {
@@ -1493,6 +1533,24 @@ bool AP_Logger::log_while_disarmed(void) const
     return false;
 }
 
+
+/*
+  return true if we should log while disarmed
+ */
+bool AP_Logger::log_while_disarmed(void) const
+{
+    if (_force_log_disarmed) {
+        return true;
+    }
+    if (_params.log_disarmed == LogDisarmed::LOG_WHILE_DISARMED ||
+        _params.log_disarmed == LogDisarmed::LOG_WHILE_DISARMED_DISCARD ||
+        (_params.log_disarmed == LogDisarmed::LOG_WHILE_DISARMED_NOT_USB && !hal.gpio->usb_connected())) {
+        return true;
+    }
+
+    return in_log_persistance();
+}
+
 #if HAL_LOGGER_FILE_CONTENTS_ENABLED
 void AP_Logger::prepare_at_arming_sys_file_logging()
 {
@@ -1508,13 +1566,17 @@ void AP_Logger::prepare_at_arming_sys_file_logging()
      */
     static const char *log_content_filenames[] = {
         "@SYS/uarts.txt",
+#ifdef HAL_DEBUG_BUILD
+        // logging dma.txt has a performance impact
         "@SYS/dma.txt",
+#endif
         "@SYS/memory.txt",
         "@SYS/threads.txt",
         "@SYS/timers.txt",
         "@ROMFS/hwdef.dat",
         "@SYS/storage.bin",
         "@SYS/crash_dump.bin",
+        "@ROMFS/defaults.parm",
     };
     for (const auto *name : log_content_filenames) {
         log_file_content(at_arm_file_content, name);

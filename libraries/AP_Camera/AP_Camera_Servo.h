@@ -20,7 +20,7 @@
 
 #include "AP_Camera_Backend.h"
 
-#if AP_CAMERA_ENABLED
+#if AP_CAMERA_SERVO_ENABLED
 
 class AP_Camera_Servo : public AP_Camera_Backend
 {
@@ -39,7 +39,7 @@ public:
     bool trigger_pic() override;
 
     // configure camera
-    void configure(float shooting_mode, float shutter_speed, float aperture, float ISO, float exposure_type, float cmd_id, float engine_cutoff_time) override;
+    void configure(float shooting_mode, float shutter_speed, float aperture, float ISO, int32_t exposure_type, int32_t cmd_id, float engine_cutoff_time) override;
 
 private:
 
@@ -47,4 +47,4 @@ private:
     uint16_t iso_counter;       // count of number of cycles iso output should be held open
 };
 
-#endif // AP_CAMERA_ENABLED
+#endif // AP_CAMERA_SERVO_ENABLED

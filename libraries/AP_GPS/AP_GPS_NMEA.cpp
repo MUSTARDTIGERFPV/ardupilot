@@ -329,7 +329,7 @@ bool AP_GPS_NMEA::_term_complete()
             case _GPS_SENTENCE_GGA:
                 _last_GGA_ms = now;
                 if (_last_KSXT_pos_ms == 0 && _last_AGRICA_ms == 0) {
-                    state.location.alt  = _new_altitude;
+                    set_alt_amsl_cm(state, _new_altitude);
                     state.location.lat  = _new_latitude;
                     state.location.lng  = _new_longitude;
                 }
@@ -426,7 +426,7 @@ bool AP_GPS_NMEA::_term_complete()
                 }
                 state.location.lat     = _ksxt.fields[2]*1.0e7;
                 state.location.lng     = _ksxt.fields[1]*1.0e7;
-                state.location.alt     = _ksxt.fields[3]*1.0e2;
+                set_alt_amsl_cm(state, _ksxt.fields[3]*1.0e2);
                 _last_KSXT_pos_ms = now;
                 if (_ksxt.fields[9] >= 1) {
                     // we have 3D fix
@@ -458,8 +458,9 @@ bool AP_GPS_NMEA::_term_complete()
                 _last_3D_velocity_ms = now;
                 state.location.lat = ag.lat*1.0e7;
                 state.location.lng = ag.lng*1.0e7;
-                state.location.alt = ag.alt*1.0e2;
                 state.undulation   = -ag.undulation;
+                state.have_undulation = true;
+                set_alt_amsl_cm(state, ag.alt*1.0e2);
                 state.velocity = ag.vel_NED;
                 velocity_to_speed_course(state);
                 state.speed_accuracy = ag.vel_stddev.length();
@@ -469,7 +470,6 @@ bool AP_GPS_NMEA::_term_complete()
                 state.have_speed_accuracy = true;
                 state.have_horizontal_accuracy = true;
                 state.have_vertical_accuracy = true;
-                state.have_undulation = true;
                 check_new_itow(ag.itow, _sentence_length);
                 break;
             }
@@ -629,7 +629,7 @@ bool AP_GPS_NMEA::_term_complete()
         //
         case _GPS_SENTENCE_RMC + 7: // Speed (GPRMC)
         case _GPS_SENTENCE_VTG + 5: // Speed (VTG)
-            _new_speed = (_parse_decimal_100(_term) * 514) / 1000;       // knots-> m/sec, approximiates * 0.514
+            _new_speed = (_parse_decimal_100(_term) * 514) / 1000;       // knots-> m/sec, approximates * 0.514
             break;
         case _GPS_SENTENCE_HDT + 1: // Course (HDT)
             _new_gps_yaw = _parse_decimal_100(_term);
@@ -776,7 +776,7 @@ void AP_GPS_NMEA::parse_versiona_field(uint16_t term_number, const char *term)
     // ::printf("VERSIONA[%u]='%s'\n", term_number, term);
     auto &v = _versiona;
 #pragma GCC diagnostic push
-#if defined(__GNUC__) &&  __GNUC__ >= 10
+#if defined(__GNUC__) &&  __GNUC__ >= 9
 #pragma GCC diagnostic ignored "-Wstringop-truncation"
 #endif
     switch (term_number) {
@@ -859,8 +859,7 @@ void AP_GPS_NMEA::send_config(void)
     switch (get_type()) {
 #if AP_GPS_NMEA_UNICORE_ENABLED
     case AP_GPS::GPS_TYPE_UNICORE_MOVINGBASE_NMEA:
-        port->printf("\r\nMODE MOVINGBASE\r\n" \
-                     "CONFIG HEADING FIXLENGTH\r\n" \
+        port->printf("\r\nCONFIG HEADING FIXLENGTH\r\n" \
                      "CONFIG UNDULATION AUTO\r\n" \
                      "CONFIG\r\n" \
                      "UNIHEADINGA %.3f\r\n",
@@ -870,6 +869,7 @@ void AP_GPS_NMEA::send_config(void)
 
     case AP_GPS::GPS_TYPE_UNICORE_NMEA: {
         port->printf("\r\nAGRICA %.3f\r\n" \
+                     "MODE MOVINGBASE\r\n" \
                      "GNGGA %.3f\r\n" \
                      "GNRMC %.3f\r\n",
                      rate_s, rate_s, rate_s);

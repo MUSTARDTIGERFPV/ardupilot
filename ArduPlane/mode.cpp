@@ -32,6 +32,9 @@ bool Mode::enter()
 
     // cancel inverted flight
     plane.auto_state.inverted_flight = false;
+    
+    // cancel waiting for rudder neutral
+    plane.takeoff_state.waiting_for_rudder_neutral = false;
 
     // don't cross-track when starting a mission
     plane.auto_state.next_wp_crosstrack = false;
@@ -56,6 +59,7 @@ bool Mode::enter()
     plane.guided_state.target_heading_type = GUIDED_HEADING_NONE;
     plane.guided_state.target_airspeed_cm = -1; // same as above, although an airspeed of -1 is rare on plane.
     plane.guided_state.target_alt = -1; // same as above, although a target alt of -1 is rare on plane.
+    plane.guided_state.target_alt_time_ms = 0;
     plane.guided_state.last_target_alt = 0;
 #endif
 
@@ -85,9 +89,16 @@ bool Mode::enter()
 
     // initialize speed variable used in AUTO and GUIDED for DO_CHANGE_SPEED commands
     plane.new_airspeed_cm = -1;
+    
+    // clear postponed long failsafe if mode change (from GCS) occurs before recall of long failsafe
+    plane.long_failsafe_pending = false;
 
 #if HAL_QUADPLANE_ENABLED
     quadplane.mode_enter();
+#endif
+
+#if AP_TERRAIN_AVAILABLE
+    plane.target_altitude.terrain_following_pending = false;
 #endif
 
     bool enter_result = _enter();
@@ -102,6 +113,9 @@ bool Mode::enter()
         plane.adsb.set_is_auto_mode(does_auto_navigation());
 #endif
 
+        // set the nav controller stale AFTER _enter() so that we can check if we're currently in a loiter during the mode change
+        plane.nav_controller->set_data_is_stale();
+
         // reset steering integrator on mode change
         plane.steerController.reset_I();
 
@@ -114,6 +128,16 @@ bool Mode::enter()
         // but it should be harmless to disable the fence temporarily in these situations as well
         plane.fence.manual_recovery_start();
 #endif
+        //reset mission if in landing sequence, disarmed, not flying, and have changed to a non-autothrottle mode to clear prearm
+        if (plane.mission.get_in_landing_sequence_flag() &&
+            !plane.is_flying() && !plane.arming.is_armed_and_safety_off() &&
+            !plane.control_mode->does_auto_navigation()) {
+           GCS_SEND_TEXT(MAV_SEVERITY_INFO, "In landing sequence: mission reset");
+           plane.mission.reset();
+        }
+
+        // Make sure the flight stage is correct for the new mode
+        plane.update_flight_stage();
     }
 
     return enter_result;
@@ -195,5 +219,106 @@ bool Mode::_pre_arm_checks(size_t buflen, char *buffer) const
         return false;
     }
 #endif
+    return true;
+}
+
+void Mode::run()
+{
+    // Direct stick mixing functionality has been removed, so as not to remove all stick mixing from the user completely
+    // the old direct option is now used to enable fbw mixing, this is easier than doing a param conversion.
+    if ((plane.g.stick_mixing == StickMixing::FBW) || (plane.g.stick_mixing == StickMixing::DIRECT_REMOVED)) {
+        plane.stabilize_stick_mixing_fbw();
+    }
+    plane.stabilize_roll();
+    plane.stabilize_pitch();
+    plane.stabilize_yaw();
+}
+
+// Reset rate and steering controllers
+void Mode::reset_controllers()
+{
+    // reset integrators
+    plane.rollController.reset_I();
+    plane.pitchController.reset_I();
+    plane.yawController.reset_I();
+
+    // reset steering controls
+    plane.steer_state.locked_course = false;
+    plane.steer_state.locked_course_err = 0;
+}
+
+bool Mode::is_taking_off() const
+{
+    return (plane.flight_stage == AP_FixedWing::FlightStage::TAKEOFF);
+}
+
+// Helper to output to both k_rudder and k_steering servo functions
+void Mode::output_rudder_and_steering(float val)
+{
+    SRV_Channels::set_output_scaled(SRV_Channel::k_rudder, val);
+    SRV_Channels::set_output_scaled(SRV_Channel::k_steering, val);
+}
+
+// true if throttle min/max limits should be applied
+bool Mode::use_throttle_limits() const
+{
+#if AP_SCRIPTING_ENABLED
+    if (plane.nav_scripting_active()) {
+        return false;
+    }
+#endif
+
+    if (this == &plane.mode_stabilize ||
+        this == &plane.mode_training ||
+        this == &plane.mode_acro ||
+        this == &plane.mode_fbwa ||
+        this == &plane.mode_autotune) {
+        // a manual throttle mode
+        return !plane.g.throttle_passthru_stabilize;
+    }
+
+    if (is_guided_mode() && plane.guided_throttle_passthru) {
+        // manual pass through of throttle while in GUIDED
+        return false;
+    }
+
+#if HAL_QUADPLANE_ENABLED
+    if (quadplane.in_vtol_mode()) {
+        return quadplane.allow_forward_throttle_in_vtol_mode();
+    }
+#endif
+
+    return true;
+}
+
+// true if voltage correction should be applied to throttle
+bool Mode::use_battery_compensation() const
+{
+#if AP_SCRIPTING_ENABLED
+    if (plane.nav_scripting_active()) {
+        return false;
+    }
+#endif
+
+    if (this == &plane.mode_stabilize ||
+        this == &plane.mode_training ||
+        this == &plane.mode_acro ||
+        this == &plane.mode_fbwa ||
+        this == &plane.mode_autotune) {
+        // a manual throttle mode
+        return false;
+    }
+
+    if (is_guided_mode() && plane.guided_throttle_passthru) {
+        // manual pass through of throttle while in GUIDED
+        return false;
+    }
+
+#if HAL_QUADPLANE_ENABLED
+    if (quadplane.in_vtol_mode()) {
+        return false;
+    }
+#endif
+
     return true;
 }

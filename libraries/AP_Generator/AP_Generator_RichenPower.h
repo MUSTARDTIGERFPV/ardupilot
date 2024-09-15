@@ -3,12 +3,9 @@
 
 #include "AP_Generator_Backend.h"
 
-#ifndef AP_GENERATOR_RICHENPOWER_ENABLED
-#define AP_GENERATOR_RICHENPOWER_ENABLED 0
-#endif
-
 #if AP_GENERATOR_RICHENPOWER_ENABLED
 
+#include <AP_Logger/AP_Logger_config.h>
 #include <AP_Common/AP_Common.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -97,9 +94,11 @@ private:
         Mode        mode;
     };
 
+#if HAL_LOGGING_ENABLED
     // method and state to write and entry to the onboard log:
     void Log_Write();
     uint32_t last_logged_reading_ms;
+#endif
 
     struct Reading last_reading;
     uint32_t last_reading_ms;
@@ -154,7 +153,6 @@ private:
         uint8_t footermagic1;
         uint8_t footermagic2;
     };
-    assert_storage_size<RichenPacket, 70> _assert_storage_size_RichenPacket UNUSED_PRIVATE_MEMBER;
 
     union RichenUnion {
         uint8_t parse_buffer[70];

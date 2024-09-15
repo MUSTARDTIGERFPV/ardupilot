@@ -13,7 +13,7 @@ protected:
 
     uint32_t telem_delay() const override;
 
-    MAV_RESULT handle_flight_termination(const mavlink_command_long_t &packet) override;
+    MAV_RESULT handle_flight_termination(const mavlink_command_int_t &packet) override;
 
     uint8_t sysid_my_gcs() const override;
     bool sysid_enforce() const override;
@@ -21,16 +21,17 @@ protected:
     bool params_ready() const override;
     void send_banner() override;
 
-    MAV_RESULT _handle_command_preflight_calibration(const mavlink_command_long_t &packet, const mavlink_message_t &msg) override;
+    MAV_RESULT _handle_command_preflight_calibration(const mavlink_command_int_t &packet, const mavlink_message_t &msg) override;
 
     void send_position_target_global_int() override;
 
     MAV_RESULT handle_command_do_set_roi(const Location &roi_loc) override;
-    MAV_RESULT handle_command_mount(const mavlink_command_long_t &packet) override;
-    MAV_RESULT handle_command_int_packet(const mavlink_command_int_t &packet) override;
-    MAV_RESULT handle_command_long_packet(const mavlink_command_long_t &packet) override;
+    MAV_RESULT handle_command_int_packet(const mavlink_command_int_t &packet, const mavlink_message_t &msg) override;
     MAV_RESULT handle_command_int_do_reposition(const mavlink_command_int_t &packet);
 
+#if AP_MAVLINK_COMMAND_LONG_ENABLED
+    bool mav_frame_for_command_long(MAV_FRAME &frame, MAV_CMD packet_command) const override;
+#endif
 
     bool set_home_to_current_location(bool lock) override WARN_IF_UNUSED;
     bool set_home(const Location& loc, bool lock) override WARN_IF_UNUSED;
@@ -45,7 +46,7 @@ protected:
 
 private:
 
-    void handleMessage(const mavlink_message_t &msg) override;
+    void handle_message(const mavlink_message_t &msg) override;
     bool handle_guided_request(AP_Mission::Mission_Command &cmd) override;
     bool try_send_message(enum ap_message id) override;
 
@@ -74,7 +75,7 @@ private:
         POSZ =        7,
         POSYAW =      8,
     };
-    
+
 #if HAL_HIGH_LATENCY2_ENABLED
     uint8_t high_latency_wind_speed() const override;
     uint8_t high_latency_wind_direction() const override;

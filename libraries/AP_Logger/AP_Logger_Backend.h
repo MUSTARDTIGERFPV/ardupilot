@@ -1,26 +1,31 @@
 #pragma once
 
-#include "AP_Logger.h"
+#include "AP_Logger_config.h"
+
+#if HAL_LOGGING_ENABLED
 
 #include <AP_Common/Bitmask.h>
+#include <AP_Param/AP_Param.h>
+#include <GCS_MAVLink/GCS_MAVLink.h>
+#include <AP_Mission/AP_Mission.h>
+#include <AP_Vehicle/ModeReason.h>
 
 class LoggerMessageWriter_DFLogStart;
-
-#define MAX_LOG_FILES 500
 
 // class to handle rate limiting of log messages
 class AP_Logger_RateLimiter
 {
 public:
-    AP_Logger_RateLimiter(const AP_Logger &_front, const AP_Float &_limit_hz);
+    AP_Logger_RateLimiter(const class AP_Logger &_front, const AP_Float &_limit_hz, const AP_Float &_disarm_limit_hz);
 
     // return true if message passes the rate limit test
     bool should_log(uint8_t msgid, bool writev_streaming);
-    bool should_log_streaming(uint8_t msgid);
+    bool should_log_streaming(uint8_t msgid, float rate_hz);
 
 private:
     const AP_Logger &front;
     const AP_Float &rate_limit_hz;
+    const AP_Float &disarm_rate_limit_hz;
 
     // time in ms we last sent this message
     uint16_t last_send_ms[256];
@@ -102,7 +107,7 @@ public:
 #endif
 
      // for Logger_MAVlink
-    virtual void remote_log_block_status_msg(const GCS_MAVLINK &link,
+    virtual void remote_log_block_status_msg(const class GCS_MAVLINK &link,
                                              const mavlink_message_t &msg) { }
     // end for Logger_MAVlink
 
@@ -123,7 +128,7 @@ public:
                           const class RallyLocation &rally_point);
     bool Write_Rally();
 #if HAL_LOGGER_FENCE_ENABLED
-    bool Write_FencePoint(uint8_t total, uint8_t sequence, const AC_PolyFenceItem &fence_point);
+    bool Write_FencePoint(uint8_t total, uint8_t sequence, const class AC_PolyFenceItem &fence_point);
     bool Write_Fence();
 #endif
     bool Write_Format(const struct LogStructure *structure);
@@ -258,3 +263,5 @@ private:
     void Write_AP_Logger_Stats_File(const struct df_stats &_stats);
     void validate_WritePrioritisedBlock(const void *pBuffer, uint16_t size);
 };
+
+#endif  // HAL_LOGGING_ENABLED

@@ -1,3 +1,7 @@
+#include "AC_AutoTune_config.h"
+
+#if AC_AUTOTUNE_ENABLED
+
 #include "AC_AutoTune.h"
 
 #include <AP_Logger/AP_Logger.h>
@@ -71,7 +75,7 @@ bool AC_AutoTune::init_internals(bool _use_poshold,
         level_start_time_ms = step_start_time_ms;
         // reset gains to tuning-start gains (i.e. low I term)
         load_gains(GAIN_INTRA_TEST);
-        AP::logger().Write_Event(LogEvent::AUTOTUNE_RESTART);
+        LOGGER_WRITE_EVENT(LogEvent::AUTOTUNE_RESTART);
         update_gcs(AUTOTUNE_MESSAGE_STARTED);
         break;
 
@@ -79,7 +83,7 @@ bool AC_AutoTune::init_internals(bool _use_poshold,
         // we have completed a tune and the pilot wishes to test the new gains
         load_gains(GAIN_TUNED);
         update_gcs(AUTOTUNE_MESSAGE_TESTING);
-        AP::logger().Write_Event(LogEvent::AUTOTUNE_PILOT_TESTING);
+        LOGGER_WRITE_EVENT(LogEvent::AUTOTUNE_PILOT_TESTING);
         break;
     }
 
@@ -98,7 +102,8 @@ void AC_AutoTune::stop()
     attitude_control->use_sqrt_controller(true);
 
     update_gcs(AUTOTUNE_MESSAGE_STOPPED);
-    AP::logger().Write_Event(LogEvent::AUTOTUNE_OFF);
+
+    LOGGER_WRITE_EVENT(LogEvent::AUTOTUNE_OFF);
 
     // Note: we leave the mode as it was so that we know how the autotune ended
     // we expect the caller will change the flight mode back to the flight mode indicated by the flight mode switch
@@ -172,7 +177,9 @@ const char *AC_AutoTune::axis_string() const
     case PITCH:
         return "Pitch";
     case YAW:
-        return "Yaw";
+        return "Yaw(E)";
+    case YAW_D:
+        return "Yaw(D)";
     }
     return "";
 }
@@ -363,6 +370,7 @@ void AC_AutoTune::control_attitude()
             start_angle = ahrs_view->pitch_sensor;
             break;
         case YAW:
+        case YAW_D:
             abort_angle = AUTOTUNE_TARGET_ANGLE_YAW_CD;
             start_rate = ToDeg(ahrs_view->get_gyro().z) * 100.0f;
             start_angle = ahrs_view->yaw_sensor;
@@ -393,10 +401,12 @@ void AC_AutoTune::control_attitude()
             step = WAITING_FOR_LEVEL;
         }
 
+#if HAL_LOGGING_ENABLED
         // log this iterations lean angle and rotation rate
         Log_AutoTuneDetails();
         ahrs_view->Write_Rate(*motors, *attitude_control, *pos_control);
         log_pids();
+#endif
         break;
     }
 
@@ -405,8 +415,10 @@ void AC_AutoTune::control_attitude()
         // re-enable rate limits
         attitude_control->use_sqrt_controller(true);
 
+#if HAL_LOGGING_ENABLED
         // log the latest gains
         Log_AutoTune();
+#endif
 
         // Announce tune type test results
         // must be done before updating method because this method changes parameters for next test
@@ -477,6 +489,8 @@ void AC_AutoTune::control_attitude()
                         axis = PITCH;
                     } else if (yaw_enabled()) {
                         axis = YAW;
+                    } else if (yaw_d_enabled()) {
+                        axis = YAW_D;
                     } else {
                         complete = true;
                     }
@@ -485,12 +499,22 @@ void AC_AutoTune::control_attitude()
                     axes_completed |= AUTOTUNE_AXIS_BITMASK_PITCH;
                     if (yaw_enabled()) {
                         axis = YAW;
+                    } else if (yaw_d_enabled()) {
+                        axis = YAW_D;
                     } else {
                         complete = true;
                     }
                     break;
                 case YAW:
                     axes_completed |= AUTOTUNE_AXIS_BITMASK_YAW;
+                    if (yaw_d_enabled()) {
+                        axis = YAW_D;
+                    } else {
+                        complete = true;
+                    }
+                    break;
+                case YAW_D:
+                    axes_completed |= AUTOTUNE_AXIS_BITMASK_YAW_D;
                     complete = true;
                     break;
                 }
@@ -500,7 +524,7 @@ void AC_AutoTune::control_attitude()
                 if (complete) {
                     mode = SUCCESS;
                     update_gcs(AUTOTUNE_MESSAGE_SUCCESS);
-                    AP::logger().Write_Event(LogEvent::AUTOTUNE_SUCCESS);
+                    LOGGER_WRITE_EVENT(LogEvent::AUTOTUNE_SUCCESS);
                     AP_Notify::events.autotune_complete = true;
                 } else {
                     AP_Notify::events.autotune_next_axis = true;
@@ -512,7 +536,7 @@ void AC_AutoTune::control_attitude()
         // reverse direction for multicopter twitch test
         positive_direction = twitch_reverse_direction();
 
-        if (axis == YAW) {
+        if (axis == YAW || axis == YAW_D) {
             attitude_control->input_euler_angle_roll_pitch_yaw(0.0f, 0.0f, ahrs_view->yaw_sensor, false);
         }
 
@@ -539,6 +563,8 @@ void AC_AutoTune::backup_gains_and_initialise()
         axis = PITCH;
     } else if (yaw_enabled()) {
         axis = YAW;
+    } else if (yaw_d_enabled()) {
+        axis = YAW_D;
     }
     // no axes are complete
     axes_completed = 0;
@@ -599,10 +625,11 @@ void AC_AutoTune::update_gcs(uint8_t message_id) const
         gcs().send_text(MAV_SEVERITY_NOTICE,"AutoTune: Pilot Testing");
         break;
     case AUTOTUNE_MESSAGE_SAVED_GAINS:
-        gcs().send_text(MAV_SEVERITY_NOTICE,"AutoTune: Saved gains for %s%s%s",
+        gcs().send_text(MAV_SEVERITY_NOTICE,"AutoTune: Saved gains for %s%s%s%s",
                         (axes_completed&AUTOTUNE_AXIS_BITMASK_ROLL)?"Roll ":"",
                         (axes_completed&AUTOTUNE_AXIS_BITMASK_PITCH)?"Pitch ":"",
-                        (axes_completed&AUTOTUNE_AXIS_BITMASK_YAW)?"Yaw":"");
+                        (axes_completed&AUTOTUNE_AXIS_BITMASK_YAW)?"Yaw(E)":"",
+                        (axes_completed&AUTOTUNE_AXIS_BITMASK_YAW_D)?"Yaw(D)":"");
         break;
     }
 }
@@ -621,6 +648,15 @@ bool AC_AutoTune::pitch_enabled() const
 bool AC_AutoTune::yaw_enabled() const
 {
     return get_axis_bitmask() & AUTOTUNE_AXIS_BITMASK_YAW;
+}
+
+bool AC_AutoTune::yaw_d_enabled() const
+{
+#if APM_BUILD_TYPE(APM_BUILD_Heli)
+    return false;
+#else
+    return get_axis_bitmask() & AUTOTUNE_AXIS_BITMASK_YAW_D;
+#endif
 }
 
 /*
@@ -730,3 +766,4 @@ void AC_AutoTune::next_tune_type(TuneType &curr_tune_type, bool reset)
     curr_tune_type = tune_seq[tune_seq_curr];
 }
 
+#endif  // AC_AUTOTUNE_ENABLED

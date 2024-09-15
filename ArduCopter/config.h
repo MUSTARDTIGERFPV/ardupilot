@@ -27,6 +27,8 @@
 /// change in your local copy of APM_Config.h.
 ///
 #include "APM_Config.h"
+#include <AP_ADSB/AP_ADSB_config.h>
+#include <AP_Follow/AP_Follow_config.h>
 
 
 //////////////////////////////////////////////////////////////////////////////
@@ -132,16 +134,14 @@
  # define EKF_ORIGIN_MAX_ALT_KM         50   // EKF origin and home must be within 50km vertically
 #endif
 
+#ifndef FS_EKF_FILT_DEFAULT
+# define FS_EKF_FILT_DEFAULT     5.0f    // frequency cutoff of EKF variance filters
+#endif
+
 //////////////////////////////////////////////////////////////////////////////
 //  Auto Tuning
 #ifndef AUTOTUNE_ENABLED
  # define AUTOTUNE_ENABLED  ENABLED
-#endif
-
-//////////////////////////////////////////////////////////////////////////////
-// Precision Landing with companion computer or IRLock sensor
-#ifndef PRECISION_LANDING
- # define PRECISION_LANDING ENABLED
 #endif
 
 //////////////////////////////////////////////////////////////////////////////
@@ -152,8 +152,8 @@
 
 //////////////////////////////////////////////////////////////////////////////
 // Nav-Guided - allows external nav computer to control vehicle
-#ifndef NAV_GUIDED
- # define NAV_GUIDED    !HAL_MINIMIZE_FEATURES
+#ifndef AC_NAV_GUIDED
+ # define AC_NAV_GUIDED    ENABLED
 #endif
 
 //////////////////////////////////////////////////////////////////////////////
@@ -195,7 +195,7 @@
 //////////////////////////////////////////////////////////////////////////////
 // Follow - follow another vehicle or GCS
 #ifndef MODE_FOLLOW_ENABLED
-# define MODE_FOLLOW_ENABLED !HAL_MINIMIZE_FEATURES
+# define MODE_FOLLOW_ENABLED AP_FOLLOW_ENABLED
 #endif
 
 //////////////////////////////////////////////////////////////////////////////
@@ -207,7 +207,7 @@
 //////////////////////////////////////////////////////////////////////////////
 // GuidedNoGPS mode - control vehicle's angles from GCS
 #ifndef MODE_GUIDED_NOGPS_ENABLED
-# define MODE_GUIDED_NOGPS_ENABLED !HAL_MINIMIZE_FEATURES
+# define MODE_GUIDED_NOGPS_ENABLED ENABLED
 #endif
 
 //////////////////////////////////////////////////////////////////////////////
@@ -243,7 +243,7 @@
 //////////////////////////////////////////////////////////////////////////////
 // System ID - conduct system identification tests on vehicle
 #ifndef MODE_SYSTEMID_ENABLED
-# define MODE_SYSTEMID_ENABLED !HAL_MINIMIZE_FEATURES
+# define MODE_SYSTEMID_ENABLED HAL_LOGGING_ENABLED
 #endif
 
 //////////////////////////////////////////////////////////////////////////////
@@ -255,19 +255,19 @@
 //////////////////////////////////////////////////////////////////////////////
 // ZigZag - allow vehicle to fly in a zigzag manner with predefined point A B
 #ifndef MODE_ZIGZAG_ENABLED
-# define MODE_ZIGZAG_ENABLED !HAL_MINIMIZE_FEATURES
+# define MODE_ZIGZAG_ENABLED ENABLED
 #endif
 
 //////////////////////////////////////////////////////////////////////////////
 // Turtle - allow vehicle to be flipped over after a crash
 #ifndef MODE_TURTLE_ENABLED
-# define MODE_TURTLE_ENABLED !HAL_MINIMIZE_FEATURES && !defined(DISABLE_DSHOT) && FRAME_CONFIG != HELI_FRAME
+# define MODE_TURTLE_ENABLED HAL_DSHOT_ENABLED && FRAME_CONFIG != HELI_FRAME
 #endif
 
 //////////////////////////////////////////////////////////////////////////////
 // Flowhold - use optical flow to hover in place
 #ifndef MODE_FLOWHOLD_ENABLED
-# define MODE_FLOWHOLD_ENABLED !HAL_MINIMIZE_FEATURES && AP_OPTICALFLOW_ENABLED
+# define MODE_FLOWHOLD_ENABLED AP_OPTICALFLOW_ENABLED
 #endif
 
 //////////////////////////////////////////////////////////////////////////////
@@ -275,17 +275,18 @@
 //////////////////////////////////////////////////////////////////////////////
 // Weathervane - allow vehicle to yaw into wind
 #ifndef WEATHERVANE_ENABLED
-# define WEATHERVANE_ENABLED !HAL_MINIMIZE_FEATURES
+# define WEATHERVANE_ENABLED ENABLED
 #endif
 
 //////////////////////////////////////////////////////////////////////////////
 
 //////////////////////////////////////////////////////////////////////////////
 // Autorotate - autonomous auto-rotation - helicopters only
+#ifndef MODE_AUTOROTATE_ENABLED
 #if CONFIG_HAL_BOARD == HAL_BOARD_SITL
     #if FRAME_CONFIG == HELI_FRAME
         #ifndef MODE_AUTOROTATE_ENABLED
-        # define MODE_AUTOROTATE_ENABLED !HAL_MINIMIZE_FEATURES
+        # define MODE_AUTOROTATE_ENABLED ENABLED
         #endif
     #else
         # define MODE_AUTOROTATE_ENABLED DISABLED
@@ -293,12 +294,6 @@
 #else
     # define MODE_AUTOROTATE_ENABLED DISABLED
 #endif
-
-//////////////////////////////////////////////////////////////////////////////
-
-// Beacon support - support for local positioning systems
-#ifndef BEACON_ENABLED
-# define BEACON_ENABLED !HAL_MINIMIZE_FEATURES
 #endif
 
 //////////////////////////////////////////////////////////////////////////////
@@ -442,10 +437,6 @@
  # define RTL_CLIMB_MIN_DEFAULT     0       // vehicle will always climb this many cm as first stage of RTL
 #endif
 
-#ifndef RTL_ABS_MIN_CLIMB
- # define RTL_ABS_MIN_CLIMB         250     // absolute minimum initial climb
-#endif
-
 #ifndef RTL_CONE_SLOPE_DEFAULT
  # define RTL_CONE_SLOPE_DEFAULT    3.0f    // slope of RTL cone (height / distance). 0 = No cone
 #endif
@@ -542,9 +533,6 @@
 //////////////////////////////////////////////////////////////////////////////
 // Logging control
 //
-#ifndef LOGGING_ENABLED
- # define LOGGING_ENABLED                ENABLED
-#endif
 
 // Default logging bitmask
 #ifndef DEFAULT_LOG_BITMASK
@@ -574,7 +562,7 @@
 #endif
 
 #ifndef AC_OAPATHPLANNER_ENABLED
- #define AC_OAPATHPLANNER_ENABLED   !HAL_MINIMIZE_FEATURES
+ #define AC_OAPATHPLANNER_ENABLED   ENABLED
 #endif
 
 #if MODE_FOLLOW_ENABLED && !AC_AVOID_ENABLED
@@ -647,4 +635,12 @@
 
 #ifndef AC_CUSTOMCONTROL_MULTI_ENABLED
 #define AC_CUSTOMCONTROL_MULTI_ENABLED FRAME_CONFIG == MULTICOPTER_FRAME && AP_CUSTOMCONTROL_ENABLED
+#endif
+
+#ifndef AC_PAYLOAD_PLACE_ENABLED
+#define AC_PAYLOAD_PLACE_ENABLED 1
+#endif
+
+#ifndef USER_PARAMS_ENABLED
+  #define USER_PARAMS_ENABLED DISABLED
 #endif

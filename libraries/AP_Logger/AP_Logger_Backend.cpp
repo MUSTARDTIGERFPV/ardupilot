@@ -1,3 +1,7 @@
+#include "AP_Logger_config.h"
+
+#if HAL_LOGGING_ENABLED
+
 #include "AP_Logger_Backend.h"
 
 #include "LoggerMessageWriter.h"
@@ -7,6 +11,11 @@
 #include <AP_Scheduler/AP_Scheduler.h>
 #include <AP_Rally/AP_Rally.h>
 #include <AP_Vehicle/AP_Vehicle_Type.h>
+#include "AP_Logger.h"
+
+#if HAL_LOGGER_FENCE_ENABLED
+    #include <AC_Fence/AC_Fence.h>
+#endif
 
 extern const AP_HAL::HAL& hal;
 
@@ -377,6 +386,7 @@ void AP_Logger_Backend::validate_WritePrioritisedBlock(const void *pBuffer,
     }
     const uint8_t type = ((uint8_t*)pBuffer)[2];
     uint8_t type_len;
+    const char *name_src;
     const struct LogStructure *s = _front.structure_for_msg_type(type);
     if (s == nullptr) {
         const struct AP_Logger::log_write_fmt *t = _front.log_write_fmt_for_msg_type(type);
@@ -384,13 +394,15 @@ void AP_Logger_Backend::validate_WritePrioritisedBlock(const void *pBuffer,
             AP_HAL::panic("No structure for msg_type=%u", type);
         }
         type_len = t->msg_len;
+        name_src = t->name;
     } else {
         type_len = s->msg_len;
+        name_src = s->name;
     }
     if (type_len != size) {
         char name[5] = {}; // get a null-terminated string
-        if (s->name != nullptr) {
-            memcpy(name, s->name, 4);
+        if (name_src != nullptr) {
+            memcpy(name, name_src, 4);
         } else {
             strncpy(name, "?NM?", ARRAY_SIZE(name));
         }
@@ -507,7 +519,8 @@ bool AP_Logger_Backend::Write_RallyPoint(uint8_t total,
         sequence        : sequence,
         latitude        : rally_point.lat,
         longitude       : rally_point.lng,
-        altitude        : rally_point.alt
+        altitude        : rally_point.alt,
+        flags           : rally_point.flags
     };
     return WriteBlock(&pkt_rally, sizeof(pkt_rally));
 }
@@ -567,7 +580,7 @@ bool AP_Logger_Backend::Write_VER()
 #ifdef APJ_BOARD_ID
     pkt._APJ_BOARD_ID = APJ_BOARD_ID;
 #endif
-
+    pkt.build_type = fwver.vehicle_type;
     return WriteCriticalBlock(&pkt, sizeof(pkt));
 }
 
@@ -586,8 +599,9 @@ uint16_t AP_Logger_Backend::log_num_from_list_entry(const uint16_t list_entry)
     }
 
     uint32_t log_num = oldest_log + list_entry - 1;
-    if (log_num > MAX_LOG_FILES) {
-        log_num -= MAX_LOG_FILES;
+    const auto max_logs_num = _front.get_max_num_logs();
+    if (log_num > (uint32_t)max_logs_num) {
+        log_num -= max_logs_num;
     }
     return (uint16_t)log_num;
 }
@@ -612,7 +626,8 @@ uint16_t AP_Logger_Backend::find_oldest_log()
 
 void AP_Logger_Backend::vehicle_was_disarmed()
 {
-    if (_front._params.file_disarm_rot) {
+    if (_front._params.file_disarm_rot &&
+        !_front._params.log_replay) {
         // rotate our log.  Closing the current one and letting the
         // logging restart naturally based on log_disarmed should do
         // the trick:
@@ -671,22 +686,24 @@ void AP_Logger_Backend::df_stats_log() {
 
 
 // class to handle rate limiting of log messages
-AP_Logger_RateLimiter::AP_Logger_RateLimiter(const AP_Logger &_front, const AP_Float &_limit_hz)
-    : front(_front), rate_limit_hz(_limit_hz)
+AP_Logger_RateLimiter::AP_Logger_RateLimiter(const AP_Logger &_front, const AP_Float &_limit_hz, const AP_Float &_disarm_limit_hz)
+    : front(_front),
+      rate_limit_hz(_limit_hz),
+      disarm_rate_limit_hz(_disarm_limit_hz)
 {
 }
 
 /*
   return false if a streaming message should not be sent yet
  */
-bool AP_Logger_RateLimiter::should_log_streaming(uint8_t msgid)
+bool AP_Logger_RateLimiter::should_log_streaming(uint8_t msgid, float rate_hz)
 {
     if (front._log_pause) {
         return false;
     }
     const uint16_t now = AP_HAL::millis16();
     uint16_t delta_ms = now - last_send_ms[msgid];
-    if (delta_ms < 1000.0 / rate_limit_hz.get()) {
+    if (is_positive(rate_hz) && delta_ms < 1000.0 / rate_hz) {
         // too soon
         return false;
     }
@@ -700,7 +717,13 @@ bool AP_Logger_RateLimiter::should_log_streaming(uint8_t msgid)
  */
 bool AP_Logger_RateLimiter::should_log(uint8_t msgid, bool writev_streaming)
 {
-    if (rate_limit_hz <= 0 && !front._log_pause) {
+    float rate_hz = rate_limit_hz;
+    if (!hal.util->get_soft_armed() &&
+        !AP::logger().in_log_persistance() &&
+        !is_zero(disarm_rate_limit_hz)) {
+        rate_hz = disarm_rate_limit_hz;
+    }
+    if (!is_positive(rate_hz) && !front._log_pause) {
         // no rate limiting if not paused and rate is zero(user changed the parameter)
         return true;
     }
@@ -728,7 +751,7 @@ bool AP_Logger_RateLimiter::should_log(uint8_t msgid, bool writev_streaming)
     last_sched_count[msgid] = sched_ticks;
 #endif
 
-    bool ret = should_log_streaming(msgid);
+    bool ret = should_log_streaming(msgid, rate_hz);
     if (ret) {
         last_return.set(msgid);
     } else {
@@ -736,3 +759,5 @@ bool AP_Logger_RateLimiter::should_log(uint8_t msgid, bool writev_streaming)
     }
     return ret;
 }
+
+#endif  // HAL_LOGGING_ENABLED

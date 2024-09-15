@@ -42,17 +42,15 @@ void Plane::init_ardupilot()
 #endif
     rc().init();
 
+#if AP_RELAY_ENABLED
     relay.init();
+#endif
 
     // initialise notify system
     notify.init();
     notify_mode(*control_mode);
 
     init_rc_out_main();
-    
-    // keep a record of how many resets have happened. This can be
-    // used to detect in-flight resets
-    g.num_resets.set_and_save(g.num_resets+1);
 
     // init baro
     barometer.init();
@@ -78,7 +76,7 @@ void Plane::init_ardupilot()
     osd.init();
 #endif
 
-#if LOGGING_ENABLED == ENABLED
+#if HAL_LOGGING_ENABLED
     log_init();
 #endif
 
@@ -137,12 +135,13 @@ void Plane::init_ardupilot()
     if (g2.oneshot_mask != 0) {
         hal.rcout->set_output_mode(g2.oneshot_mask, AP_HAL::RCOutput::MODE_PWM_ONESHOT);
     }
+    hal.rcout->set_dshot_esc_type(SRV_Channels::get_dshot_esc_type());
 
     set_mode_by_number((enum Mode::Number)g.initial_mode.get(), ModeReason::INITIALISED);
 
     // set the correct flight mode
     // ---------------------------
-    reset_control_switch();
+    rc().reset_mode_switch();
 
     // initialise sensor
 #if AP_OPTICALFLOW_ENABLED
@@ -159,6 +158,10 @@ void Plane::init_ardupilot()
 // init cargo gripper
 #if AP_GRIPPER_ENABLED
     g2.gripper.init();
+#endif
+
+#if AC_PRECLAND_ENABLED
+    g2.precland.init(scheduler.get_loop_rate_hz());
 #endif
 }
 
@@ -189,7 +192,7 @@ void Plane::startup_ground(void)
     mission.init();
 
     // initialise AP_Logger library
-#if LOGGING_ENABLED == ENABLED
+#if HAL_LOGGING_ENABLED
     logger.setVehicle_Startup_Writer(
         FUNCTOR_BIND(&plane, &Plane::Log_Write_Vehicle_Startup_Messages, void)
         );
@@ -202,11 +205,6 @@ void Plane::startup_ground(void)
     // reset last heartbeat time, so we don't trigger failsafe on slow
     // startup
     gcs().sysid_myggcs_seen(AP_HAL::millis());
-
-    // we don't want writes to the serial port to cause us to pause
-    // mid-flight, so set the serial ports non-blocking once we are
-    // ready to fly
-    serial_manager.set_blocking_writes_all(false);
 }
 
 
@@ -230,12 +228,46 @@ static bool mode_reason_is_landing_sequence(const ModeReason reason)
 }
 #endif // AP_FENCE_ENABLED
 
+// Check if this mode can be entered from the GCS
+bool Plane::gcs_mode_enabled(const Mode::Number mode_num) const
+{
+    // List of modes that can be blocked, index is bit number in parameter bitmask
+    static const uint8_t mode_list [] {
+        (uint8_t)Mode::Number::MANUAL,
+        (uint8_t)Mode::Number::CIRCLE,
+        (uint8_t)Mode::Number::STABILIZE,
+        (uint8_t)Mode::Number::TRAINING,
+        (uint8_t)Mode::Number::ACRO,
+        (uint8_t)Mode::Number::FLY_BY_WIRE_A,
+        (uint8_t)Mode::Number::FLY_BY_WIRE_B,
+        (uint8_t)Mode::Number::CRUISE,
+        (uint8_t)Mode::Number::AUTOTUNE,
+        (uint8_t)Mode::Number::AUTO,
+        (uint8_t)Mode::Number::LOITER,
+        (uint8_t)Mode::Number::TAKEOFF,
+        (uint8_t)Mode::Number::AVOID_ADSB,
+        (uint8_t)Mode::Number::GUIDED,
+        (uint8_t)Mode::Number::THERMAL,
+#if HAL_QUADPLANE_ENABLED
+        (uint8_t)Mode::Number::QSTABILIZE,
+        (uint8_t)Mode::Number::QHOVER,
+        (uint8_t)Mode::Number::QLOITER,
+        (uint8_t)Mode::Number::QACRO,
+#if QAUTOTUNE_ENABLED
+        (uint8_t)Mode::Number::QAUTOTUNE
+#endif
+#endif
+    };
+
+    return !block_GCS_mode_change((uint8_t)mode_num, mode_list, ARRAY_SIZE(mode_list));
+}
+
 bool Plane::set_mode(Mode &new_mode, const ModeReason reason)
 {
 
     if (control_mode == &new_mode) {
         // don't switch modes if we are already in the correct mode.
-        // only make happy noise if using a difent method to switch, this stops beeping for repeated change mode requests from GCS
+        // only make happy noise if using a different method to switch, this stops beeping for repeated change mode requests from GCS
         if ((reason != control_mode_reason) && (reason != ModeReason::INITIALISED)) {
             AP_Notify::events.user_mode_change = 1;
         }
@@ -279,6 +311,12 @@ bool Plane::set_mode(Mode &new_mode, const ModeReason reason)
     }
 #endif
 
+    // Check if GCS mode change is disabled via parameter
+    if ((reason == ModeReason::GCS_COMMAND) && !gcs_mode_enabled(new_mode.mode_number())) {
+        gcs().send_text(MAV_SEVERITY_NOTICE,"Mode change to %s denied, GCS entry disabled (FLTMODE_GCSBLOCK)", new_mode.name());
+        return false;
+    }
+
     // backup current control_mode and previous_mode
     Mode &old_previous_mode = *previous_mode;
     Mode &old_mode = *control_mode;
@@ -313,7 +351,9 @@ bool Plane::set_mode(Mode &new_mode, const ModeReason reason)
     old_mode.exit();
 
     // log and notify mode change
+#if HAL_LOGGING_ENABLED
     logger.Write_Mode(control_mode->mode_number(), control_mode_reason);
+#endif
     notify_mode(*control_mode);
     gcs().send_message(MSG_HEARTBEAT);
 
@@ -438,17 +478,15 @@ void Plane::notify_mode(const Mode& mode)
     notify.set_flight_mode_str(mode.name4());
 }
 
+#if HAL_LOGGING_ENABLED
 /*
   should we log a message type now?
  */
 bool Plane::should_log(uint32_t mask)
 {
-#if LOGGING_ENABLED == ENABLED
     return logger.should_log(mask);
-#else
-    return false;
-#endif
 }
+#endif
 
 /*
   return throttle percentage from 0 to 100 for normal use and -100 to 100 when using reverse thrust

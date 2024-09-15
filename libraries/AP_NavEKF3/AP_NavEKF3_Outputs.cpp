@@ -88,7 +88,7 @@ bool NavEKF3_core::getHeightControlLimit(float &height) const
 // return the Euler roll, pitch and yaw angle in radians
 void NavEKF3_core::getEulerAngles(Vector3f &euler) const
 {
-    outputDataNew.quat.to_euler(euler.x, euler.y, euler.z);
+    outputDataNew.quat.to_euler(euler);
     euler = euler - dal.get_trim();
 }
 
@@ -236,10 +236,10 @@ bool NavEKF3_core::getPosNE(Vector2f &posNE) const
                 posNE = public_origin.get_distance_NE_ftype(gpsloc).tofloat();
                 return false;
 #if EK3_FEATURE_BEACON_FUSION
-            } else if (rngBcnAlignmentStarted) {
+            } else if (rngBcn.alignmentStarted) {
                 // If we are attempting alignment using range beacon data, then report the position
-                posNE.x = receiverPos.x;
-                posNE.y = receiverPos.y;
+                posNE.x = rngBcn.receiverPos.x;
+                posNE.y = rngBcn.receiverPos.y;
                 return false;
 #endif
             } else {
@@ -260,17 +260,7 @@ bool NavEKF3_core::getPosNE(Vector2f &posNE) const
 // Return true if the estimate is valid
 bool NavEKF3_core::getPosD_local(float &posD) const
 {
-    // The EKF always has a height estimate regardless of mode of operation
-    // Correct for the IMU offset (EKF calculations are at the IMU)
-    // Also correct for changes to the origin height
-    if ((frontend->_originHgtMode & (1<<2)) == 0) {
-        // Any sensor height drift corrections relative to the WGS-84 reference are applied to the origin.
-        posD = outputDataNew.position.z + posOffsetNED.z;
-    } else {
-        // The origin height is static and corrections are applied to the local vertical position
-        // so that height returned by getLLH() = height returned by getOriginLLH - posD
-        posD = outputDataNew.position.z + posOffsetNED.z + 0.01f * (float)EKF_origin.alt - (float)ekfGpsRefHgt;
-    }
+    posD = outputDataNew.position.z + posOffsetNED.z;
 
     // Return the current height solution status
     return filterStatus.flags.vert_pos;
@@ -621,7 +611,7 @@ void NavEKF3_core::send_status_report(GCS_MAVLINK &link) const
         velVar,
         posVar,
         hgtVar,
-        fmaxF(fmaxF(magVar.x,magVar.y),magVar.z),
+        fmaxf(fmaxf(magVar.x,magVar.y),magVar.z),
         temp,
         flags,
         tasVar

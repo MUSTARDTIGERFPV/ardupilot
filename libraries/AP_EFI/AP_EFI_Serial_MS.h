@@ -14,6 +14,10 @@
  */
 #pragma once
 
+#include "AP_EFI_config.h"
+
+#if AP_EFI_SERIAL_MS_ENABLED
+
 #include "AP_EFI.h"
 #include "AP_EFI_Backend.h"
 
@@ -42,7 +46,7 @@ private:
     uint8_t step;
     uint8_t response_flag;
     uint16_t message_counter;
-    uint32_t last_response_ms;
+    uint32_t last_request_ms;
 
     // confirmed that last command was ok
     bool last_command_confirmed;
@@ -108,3 +112,5 @@ private:
         RT_LAST_OFFSET = FUEL_PRESSURE_LSB
     };
 };
+
+#endif  // AP_EFI_SERIAL_MS_ENABLED

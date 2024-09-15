@@ -556,7 +556,7 @@ void FlightAxis::update(const struct sitl_input &input)
     if (is_positive(dcm.c.z)) {
         rangefinder_m[0] = state.m_altitudeAGL_MTR / dcm.c.z;
     } else {
-        rangefinder_m[0] = -1;
+        rangefinder_m[0] = nanf("");
     }
 
     report_FPS();
@@ -590,12 +590,16 @@ void FlightAxis::socket_creator(void)
             pthread_cond_wait(&sockcond2, &sockmtx);
         }
         pthread_mutex_unlock(&sockmtx);
-        auto *sck = new SocketAPM(false);
+        auto *sck = new SocketAPM_native(false);
         if (sck == nullptr) {
             usleep(500);
             continue;
         }
-        if (!sck->connect(controller_ip, controller_port)) {
+        /*
+          don't let the connection take more than 100ms (10Hz). Longer
+          than this and we are better off trying for a new socket
+         */
+        if (!sck->connect_timeout(controller_ip, controller_port, 100)) {
             ::printf("connect failed\n");
             delete sck;
             usleep(5000);
